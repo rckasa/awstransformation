@@ -5,6 +5,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 #     1- Creates and Runs Glue ETL Job. 
 #     2- Uses custom ETL Script that runs ML Transform to dededuplicate data in source bucket
 # @author Kanishk Mahajan
+##
+## License:
+## This code is made available under the MIT-0 license. See the LICENSE file.
 # ----------------------------------------------------------------------------------------
 
 Parameters:
