@@ -13,6 +13,9 @@ Description: AWS SC Create a portfolio in Hub/Master and share it with Organizat
 #  
 # 
 # @author Kanishk Mahajan
+##
+## License:
+## This code is made available under the MIT-0 license. See the LICENSE file.
 # ------------------------------------------------------------...............................................
 
 Parameters:

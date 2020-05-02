@@ -10,6 +10,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 #  2- Takes a json input of account(s) details.
 #  
 # @author Kanishk Mahajan
+##
+## License:
+## This code is made available under the MIT-0 license. See the LICENSE file.
 # ------------------------------------------------------------......................................................
 
 Parameters:

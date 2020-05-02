@@ -9,7 +9,11 @@ AWSTemplateFormatVersion: '2010-09-09'
 #  2- Allows end user of the member account to provision products from the Service Catalog interface (or from AWS SSO)
 #  3- All products provisioned in member accounts are governed by AWS Control Tower Guardrails
 #  
+#
 # @author Kanishk Mahajan
+##
+## License:
+## This code is made available under the MIT-0 license. See the LICENSE file.
 # ------------------------------------------------------------...............................................
 
 Parameters:
