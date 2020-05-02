@@ -8,6 +8,9 @@ Description: Site-to-Site VPN Connection, Transit Gateway, Transit Gateway Attac
 # Demonstrates how to move off full mesh networks to hub and spoke topologies and for both AWS and hybrid networks
 #
 # @author Kanishk Mahajan
+##
+## License:
+## This code is made available under the MIT-0 license. See the LICENSE file.
 # ----------------------------------------------------------------------------------------------------------------
 
 Parameters: 
