@@ -1,2 +1,2 @@
 # awsmigrations: security and governance related automations
-CloudFormation Templates that focus on security automation in AWS migrations which usually consist of 3 categories  1) data, network and identity related AWS transformations, 2) governance of accounts and administration via secure landing zones and 3) set up of continuous compliance and self healing environments
+CloudFormation Templates that focus on security automation in AWS migrations and consist of 3 categories  1) data, network and identity related AWS transformations, 2) governance of accounts and administration via secure landing zones and 3) set up of continuous compliance and self healing environments
