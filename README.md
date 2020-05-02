@@ -1,2 +1,2 @@
-# awstransformationsamples
-CloudFormation Templates and samples that demonstrate working examples for AWS Security and AWS Cloud Transformation and Migration projects
+# awsmigrations: security and governance related automations
+CloudFormation Templates that focus on security automation in AWS migrations which usually consist of 3 categories  1) data, network and identity related AWS transformations, 2) governance of accounts and administration via secure landing zones and 3) set up of continuous compliance and self healing environments
