@@ -8,7 +8,10 @@ Description: GuardDuty for EC2
 # EC2 Recon Attack and IAM Password Policy change. Can be extended for any GuardDuty EC2 or IAM related threat findings
 # Automates Finding generations
 #
-# @author Kanishk Mahajan
+# @author kanishk.mahajan
+##
+## License:
+## This code is made available under the MIT-0 license. See the LICENSE file.
 # ----------------------------------------------------------------------------------------------------------------
 
 Parameters: 
