@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+# ----------------------------------------------------------------------------------------
+# CloudFormation Template 2 of 2 for ML Data Transformation use case - 
+#     1- Creates and Runs Glue ETL Job. 
+#     2- Uses custom ETL Script that runs ML Transform to dededuplicate data in source bucket
+# @author Kanishk Mahajan
+# ----------------------------------------------------------------------------------------
+
+Parameters:
+
+# S3 bucket name that contains the etl python script
+  CFNS3ETLScripts:
+    Description: S3 bucket name that contains the etl script
+    Type: String
+    Default: s3-etl-scripts
+
+Resources:    
+# ----------------------------------------------------------------------------------------
+# Creates and Runs GLue ETL Job. Uses custom Python ETL script that runs ML Transform to 
+# dededuplicate data in source bucket
+# ----------------------------------------------------------------------------------------
+
+ etljob:
+   Type: "AWS::Glue::Job"  
+   Properties:
+     Role: !ImportValue MLTransformRoleArn
+     AllocatedCapacity: 10
+     DefaultArguments:
+       "--sourcedatabase": !ImportValue CFNDatabaseName
+       "--sourcetable": !ImportValue CFNTableName
+       "--destinationpath": !ImportValue CFNS3TransformPath
+       "--transformId": !ImportValue CFNMLTransformID
+       "--job-bookmark-option": job-bookmark-enable
+     Command: 
+       Name: glue-ml-etl
+       ScriptLocation: !Sub 's3://${CFNS3ETLScripts}-${AWS::AccountId}-${AWS::Region}/scripts/etl-script-v1.py'
+     
+

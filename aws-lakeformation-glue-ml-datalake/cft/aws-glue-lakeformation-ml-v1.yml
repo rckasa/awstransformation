@@ -1,0 +1,341 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+# ----------------------------------------------------------------------------------------
+# CloudFormation Template 1 of 2 for ML Data Transformation use case - 
+#   1 - Creates Glue Data Catalog (Database, Table) from source S3 dataset
+#   2 - Creates a LakeFormation ML Transform for fuzzy logic deduplication of data
+#   3 - Creates a Transformed S3 Bucket, Glue IAM role 
+#   4 - Creates a Glue Crawler that is scheduled to run on a cron schedule
+#      ----Glue Crawler crawls transformed S3 bucket and creates new transformed Glue Tables/Catalog
+    
+#   Next Step - Manual- 
+#   1 - Train the ML Transform using label data (use Glue ML console or any other tool- Jupyter, SageMaker etc)
+
+#   Next Step -  CloudFormation Template 2 of 2 -
+#   1 - Creates and Runs a Glue ETL job that uses the trained ML Transform and populates the Transformed S3 Bucket
+      
+#    The Crawler from this template will periodically crawl the transformed bucket and create/update
+#   the new transformed Glue Tables/Catalog. This is then queried using Athena and visualized with Quicksight (Demo)
+#
+# @author Kanishk Mahajan
+# ----------------------------------------------------------------------------------------
+
+Parameters:
+
+# The name of the LakeFormation ML Transform
+  CFNMLTransformName:
+    Description: The name of the LakeFormation ML Transform
+    Type: String
+    Default: cfn-findmatches-ml-transform-v1
+
+# Glue Database that contains the source and transformed data
+  CFNDatabaseName:
+    Description: Glue Database that contains Glue tables for both source and transformed data
+    Type: String
+    Default: cfn-database-patient-v1
+
+# Glue Table that contains the source data
+  CFNTableName:
+    Description: Glue Table that contains the source data
+    Type: String
+    Default: cfn_table_patient-v1
+
+# S3 bucket name that contains the source data set
+  CFNS3Source:
+    Description: S3 bucket name that contains the source data set
+    Type: String
+    Default: s3-source-duplicaterecords
+
+# S3 bucket name that contains the transformed data set
+  CFNS3TransformBucket:
+    Description: S3 bucket name that contains the transformed data set
+    Type: String
+    Default: s3-transform-deduplicated-v1
+
+# Glue Crawler for creating transformed Glue Tables/Catalog
+  GlueTransformCrawler:
+    Description: Glue Crawler that creates the transformed Glue Tables
+    Type: String
+    Default: glue-crawler-transform-deduplicated-v1
+
+# S3 bucket name that contains the transformed data set from a previous ETL run - FOR DEMO PURPOSE ONLY
+  CFNS3TransformBucketPrevious:
+    Description: S3 bucket name that contains the transformed data set from a previous ETL run - FOR DEMO PURPOSE ONLY
+    Type: String
+    Default: s3-transform-deduplicated-previous
+
+#
+#
+# Resources section defines metadata for the Patients Catalog (Database, Table), S3 Bucket that will store the Transform Results, IAM Role to be assigned to MLTransform, ML Transform, and outputs the name of the S3 Bucket created.
+
+# ----------------------------------------------------------------------------------------
+# Create a Glue Database and Table base on Source S3 data
+# Provision Lake Formation ML Transform and corresponding IAM role
+# Provision Transform S3 bucket (--transformed data will be stored in S3 AFTER training and running the ML Transform)
+# ----------------------------------------------------------------------------------------
+
+Resources:
+# Bucket Policy for S3 Bucket. Restrict to allow access to only SSL transport.
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CFNS3Transform
+      PolicyDocument:
+        Statement:
+          -
+            Action:
+              - "s3:*"
+            Effect: "Allow"
+            Resource:
+              - !Sub arn:aws:s3:::${CFNS3Transform}
+              - !Sub arn:aws:s3:::${CFNS3Transform}/*
+            Principal:
+              AWS:
+              - !Ref AWS::AccountId
+          -
+            Effect: Deny
+            Principal: "*"
+            Action: "*"
+            Resource:
+              - !Sub arn:aws:s3:::${CFNS3Transform}
+              - !Sub arn:aws:s3:::${CFNS3Transform}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+# S3 Bucket to store the output of ML Transform
+  CFNS3Transform:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${CFNS3TransformBucket}-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      AccessControl: BucketOwnerFullControl
+      LifecycleConfiguration:
+        Rules:
+          -
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+            NoncurrentVersionExpirationInDays: 3
+            Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        -
+          Key: Description
+          Value: ML Transform FindMatches Transform Data Set Bucket
+      VersioningConfiguration:
+        Status: Enabled
+
+
+#Create IAM Role assumed by the ML Transform.
+  CFNRolePatients:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AWSGlueServiceRoleMLTransform
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "glue.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: "XGlueS3PolicyForMLTransform"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action: "s3:*"
+                Resource:
+                  - !Sub arn:aws:s3:::${CFNS3Transform}
+                  - !Sub arn:aws:s3:::${CFNS3Transform}/*
+              -
+                Effect: "Allow"
+                Action: "s3:GetObject"
+                Resource:
+                  - !Sub arn:aws:s3:::${CFNS3Source}-${AWS::Region}
+                  - !Sub arn:aws:s3:::${CFNS3Source}-${AWS::Region}/*
+
+# Create a Patients database to contain tables created by the crawler
+  CFNDatabasePatients:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref CFNDatabaseName
+        Description: "AWS Glue container to hold metadata tables for the patients data crawler"
+
+# Create a Patients Table in the Patients Database
+  GlueMLCFNPatientTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref CFNDatabasePatients
+      TableInput:
+        Name: !Ref CFNTableName
+        Parameters: { "classification" : "csv", "typeOfData" : "file", "skip.header.line.count" : "1", "compressionType" : "none","areColumnsQuoted" : "false","columnsOrdered" : "true","delimiter" : ","}
+        StorageDescriptor:
+          SerdeInfo:
+            Parameters: { "field.delim" : "," }
+            SerializationLibrary: "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          Compressed: false
+          Location: !Sub 's3://${CFNS3Source}-${AWS::Region}/source/'
+            # !Sub "s3://mltransformdataset-${AWS::Region}/source/"
+          Columns:
+            - Name: "patient_id"
+              Type: "string"
+            - Name: "culture"
+              Type: "string"
+            - Name: "sex"
+              Type: "string"
+            - Name: "age"
+              Type: "string"
+            - Name: "date_of_birth"
+              Type: "string"
+            - Name: "title"
+              Type: "string"
+            - Name: "given_name"
+              Type: "string"
+            - Name: "surname"
+              Type: "string"
+            - Name: "state"
+              Type: "string"
+            - Name: "suburb"
+              Type: "string"
+            - Name: "postcode"
+              Type: "string"
+            - Name: "street_number"
+              Type: "string"
+            - Name: "address_1"
+              Type: "string"
+            - Name: "address_2"
+              Type: "string"
+            - Name: "phone_number"
+              Type: "string"
+            - Name: "soc_sec_id"
+              Type: "string"
+
+  #Create ML Transform to Find Matches in Patients
+  MyMLTransform:
+    Type: "AWS::Glue::MLTransform"
+    Properties:
+      Name: !Ref CFNMLTransformName
+      Description: "MLTransform for Patients Matching"
+      Role: !Ref CFNRolePatients
+      WorkerType: "Standard"
+      NumberOfWorkers: 10
+      Timeout: 86400
+      MaxRetries: 3
+      InputRecordTables:
+        GlueTables:
+          - DatabaseName: !Ref CFNDatabasePatients
+            TableName: !Ref GlueMLCFNPatientTable
+      TransformParameters:
+        TransformType: "FIND_MATCHES"
+        FindMatchesParameters:
+          PrimaryKeyColumnName: "patient_id"
+          PrecisionRecallTradeoff: 0.9
+          AccuracyCostTradeoff: 1
+          EnforceProvidedLabels: True
+
+
+# ----------------------------------------------------------------------------------------
+# Create a Glue Crawler that runs on a predefined cron schedule (every 5 mins sun-sat below)
+# The Crawler will automatically create Glue Tables/Catalog based on ML transformed content (deduplicated data) 
+# in the transformed S3 bucket
+# The Crawler uses the same source database name and creates a new table- TablePrefix_transformreults
+# ----------------------------------------------------------------------------------------
+
+  GlueCrawler:
+      Type: AWS::Glue::Crawler
+      DependsOn: GlueCrawlerRole
+      Properties:
+          Name: !Ref GlueTransformCrawler
+          Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${GlueCrawlerRole}'
+          DatabaseName: !Ref CFNDatabasePatients
+          Classifiers: []
+          Configuration: "{\"Version\":1}"
+          TablePrefix: "table_results_"
+          SchemaChangePolicy: 
+            UpdateBehavior: "UPDATE_IN_DATABASE"
+            DeleteBehavior: "LOG"
+          Schedule:
+            ScheduleExpression: "cron(0/5 * ? * SUN-SAT *)"
+          Targets: 
+              S3Targets: 
+                - 
+#                  Path: !Join ["",[ "s3://", !Ref CFNS3Transform, "/transformresults/" ] ]
+                  Path: !Sub 's3://${CFNS3TransformBucketPrevious}-${AWS::AccountId}-${AWS::Region}/transformresults/'
+                  Exclusions: []
+              JdbcTargets: []
+
+  GlueCrawlerRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+              - glue.amazonaws.com
+            Action:
+            - sts:AssumeRole
+        Path: /
+        Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Action:
+              - s3:*
+              - athena:*
+              - glue:*
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              Resource: '*'
+              Effect: Allow
+
+Outputs:
+  CFNS3TransformPath:
+    Value: !Sub 's3://${CFNS3Transform}/transformresults/'
+    Description: Name of S3 bucket created to store the ML Transform Results
+    Export: # added to export
+      Name: CFNS3TransformPath
+  CFNTableName:
+    Value: !Ref CFNTableName
+    Description: Name of Glue Table created from source S3
+    Export: # added to export
+      Name: CFNTableName
+  CFNDatabaseName:
+    Value: !Ref CFNDatabaseName
+    Description: Name of Glue Database created from source S3
+    Export: # added to export
+      Name: CFNDatabaseName
+  CFNMLTransformID:
+    Value: !Ref MyMLTransform
+    Description: ID of ML Transform
+    Export: # added to export
+      Name: CFNMLTransformID
+  MLTransformRoleArn:
+    Value: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${CFNRolePatients}'
+    Description: Arn of ML Transform Role
+    Export: # added to export
+      Name: MLTransformRoleArn
+

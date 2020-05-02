@@ -1,0 +1,106 @@
+Parameters:
+  SplunkStreamingLambdaS3Bucket:
+    Type: String
+    Default: splunk-streaming-lambda
+    MinLength: 1
+    MaxLength: 80
+    Description: |
+      S3 Bucket that contains the SplunkStreamingLambda code
+  SplunkStreamingLambdaPath:
+    Type: String
+    Default: Lambda/splunkstreaminglambda.zip
+    ConstraintDescription: '[A-Za-z0-9\-]+/'
+    Description: |
+      S3 Key for SplunkStreamingLambda zip file.
+  SplunkHECToken:
+    Type: String
+    Default: 285645a7-a8b3-4e9a-9bf9-4e976df4a8c6
+    ConstraintDescription: '[A-Za-z0-9\-]+/'
+    Description: |
+      Secret Key for Splunk Enterprise
+  SplunkHECUrl:
+    Type: String
+    Default: http://ec2-54-219-171-242.us-west-1.compute.amazonaws.com:8088/services/collector
+    ConstraintDescription: '[A-Za-z0-9\-]+/'
+    Description: |
+      Splunk Enterprise Admin Service URL
+  LogGroupName:
+    Type: String
+    Default: CloudTrail/DefaultLogGroup
+    ConstraintDescription: '[A-Za-z0-9\-]+/'
+    Description: |
+      CloudWatch Logs Trigger for Splunk Lambda
+
+
+Resources:
+  SplunkStreamingLambdaExecutionRoleCF:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSSMFullAccess'
+        - 'arn:aws:iam::aws:policy/IAMReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+  
+  SubscriptionFilter: 
+    Type: "AWS::Logs::SubscriptionFilter"
+    DependsOn: "LambdaInvokePermission"
+    Properties: 
+      LogGroupName:
+        Fn::Join:
+            - ''
+            - - !Ref LogGroupName
+              - '-'
+              - !Ref 'AWS::Region'
+      FilterPattern: ""
+      DestinationArn: 
+        Fn::GetAtt: 
+          - "SplunkStreamingLambda"
+          - "Arn"
+
+  SplunkStreamingLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SplunkStreamingLambda
+      MemorySize: 128
+      Role: !GetAtt SplunkStreamingLambdaExecutionRoleCF.Arn
+      Handler: index.handler
+      Code:
+        S3Bucket: 
+          Fn::Join:
+              - ''
+              - - !Ref SplunkStreamingLambdaS3Bucket
+                - '-'
+                - !Ref 'AWS::AccountId'
+                - '-'
+                - !Ref 'AWS::Region'
+        S3Key: !Ref SplunkStreamingLambdaPath
+      Runtime: nodejs8.10
+      Timeout: 300
+      Environment:
+        Variables:
+          SPLUNK_HEC_TOKEN: !Ref SplunkHECToken
+          SPLUNK_HEC_URL: !Ref SplunkHECUrl
+ 
+  LambdaInvokePermission: 
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref "SplunkStreamingLambda"
+        Action: "lambda:InvokeFunction"
+        Principal: !Sub "logs.${AWS::Region}.amazonaws.com"
+        SourceArn:  
+            Fn::Join:
+                - ''
+                - - 'arn:aws:logs:'
+                  - Ref: AWS::Region
+                  - ':'
+                  - Ref: AWS::AccountId
+                  - !Sub ':log-group:${LogGroupName}-${AWS::Region}:*'

@@ -1,0 +1,207 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  CloudFormation Template 1 of 1 - Control Tower Account Factory to provision multiple accounts to
+#                                   OUs with built-in baselines
+#  
+#  1- Creates a provisioning artifact for the Control Tower Account Factory service catalog product
+#  2- Takes a json input of account(s) details.
+#  
+# @author Kanishk Mahajan
+# ------------------------------------------------------------......................................................
+
+Parameters:
+  AccountFactoryPortfolioID:
+    Type: String
+    Description: Portfolio Id value of the Account Factory Service Catalog Portfolio
+    AllowedPattern: 'port-[A-Za-z0-9-]{13}'
+    ConstraintDescription: Must start with port- followed 13 aplhanumeric characters
+    Default: port-enoaaj2xachms
+  AccountFactoryProductID:
+    Type: String
+    Description: Product Id value of the Account Factory Service Catalog Product
+    ConstraintDescription: Must start with prod- followed 13 aplhanumeric characters
+    Default: prod-d4pga7koj4ryo
+  SSOUserFirstName:
+    Type: String
+    Description: Account User First Name
+    Default: ctmarketingdemo
+  SSOUserLastName:
+    Type: String
+    Description: Account User Last Name
+    Default: user4
+  OU:
+    Type: String
+    Description: Organization Unit for the account
+    Default: marketing
+  AccountName:
+    Type: String
+    Description: Friendly Account Name
+    Default: ctmarketingdemo4
+  AccountEmail:
+    Type: String
+    Description: Email of the Account Root User
+    Default: 'ctmarketingdemo4@gmail.com'
+  SSOUserEmail:
+    Type: String
+    Description: Email of the SSO user
+    Default: 'ctmarketingdemouser4@gmail.com'
+
+
+
+Resources:
+
+  IamRoleLambdaForSC:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSServiceCatalogAdminFullAccess
+        - arn:aws:iam::aws:policy/AWSOrganizationsFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  LambdaExecutePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt
+        - SCProvisioningArtifactLambda
+        - Arn
+      Principal: 'cloudformation.amazonaws.com'
+      SourceAccount: !Ref 'AWS::AccountId'
+      
+  SCProvisioningArtifactLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: IamRoleLambdaForSC
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import botocore
+          import os
+          import cfnresponse
+          import logging
+          from botocore.vendored import requests
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+    
+          sc = boto3.client('servicecatalog')
+
+          def handler(event, context):
+
+            prtId = os.environ.get("PortfolioId")
+            prodId = os.environ.get("ProductId")
+            logger.info('Event Received : {}'.format(event))
+            responsedata = {}
+     
+            eventType = event['RequestType']
+
+            responsedata['ProductId'] = prodId
+
+            if event['RequestType'] == "Delete":
+                logger.info(f'Request Type is Delete; unsupported')
+                cfnsend(event, context, 'SUCCESS', responsedata)
+                return event
+
+            if eventType != 'Delete': 
+              try:
+                logger.info('Obtaining provisioning artifacts')
+                prodArtif = sc.list_provisioning_artifacts(AcceptLanguage='en', ProductId=prodId)
+
+                last_artifact_Id = max(prodArtif['ProvisioningArtifactDetails'],key=lambda item:item['CreatedTime'])
+                responsedata['ArtifactId'] = last_artifact_Id['Id']
+
+              except:
+                logger.error('Provisioning Artifact Failed: {}:{}'.format(prodId, str(e)))
+                cfnsend(event, context, 'FAILED', responsedata, 'Version not found in Service Catalog')
+
+            cfnsend(event, context, 'SUCCESS', responsedata)
+            return "Success"
+
+          def cfnsend(event, context, responseStatus, responseData, reason=None):
+              if 'ResponseURL' in event:
+                  responseUrl = event['ResponseURL']
+                  # Build out the response json
+                  responseBody = {}
+                  responseBody['Status'] = responseStatus
+                  responseBody['Reason'] = reason or 'CWL Log Stream =' + context.log_stream_name
+                  responseBody['PhysicalResourceId'] = context.log_stream_name
+                  responseBody['StackId'] = event['StackId']
+                  responseBody['RequestId'] = event['RequestId']
+                  responseBody['LogicalResourceId'] = event['LogicalResourceId']
+                  responseBody['Data'] = responseData
+                  json_responseBody = json.dumps(responseBody)
+
+                  logger.info(f'Response body: + {json_responseBody}')
+
+                  headers = {
+                      'content-type': '',
+                      'content-length': str(len(json_responseBody))
+                  }
+                  # Send response back to CFN
+                  try:
+                      response = requests.put(responseUrl,
+                                              data=json_responseBody,
+                                              headers=headers)
+                      logger.info(f'Status code: {response.reason}')
+                  except Exception as e:
+                      logger.info(f'send(..) failed executing requests.put(..):  {str(e)}')
+      Handler: index.handler
+      Runtime: python3.7
+      MemorySize: 128
+      Role: !GetAtt IamRoleLambdaForSC.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          PortfolioId: !Ref AccountFactoryPortfolioID
+          ProductId: !Ref AccountFactoryProductID
+  
+  ProvisioningArtifact:
+    Type: 'Custom::ProvisioningArtifact'
+    DependsOn:
+      - SCProvisioningArtifactLambda
+      - LambdaExecutePermission
+    Properties:
+      ServiceToken: !GetAtt
+        - SCProvisioningArtifactLambda
+        - Arn
+
+  AccountFactoryAccount:
+    Type: "AWS::ServiceCatalog::CloudFormationProvisionedProduct"
+    DependsOn: ProvisioningArtifact
+    Properties:
+      ProductId: !Ref AccountFactoryProductID
+      ProvisioningArtifactId: !GetAtt ProvisioningArtifact.ArtifactId
+      ProvisioningParameters:
+        - Key: "SSOUserEmail"
+          Value: !Ref SSOUserEmail
+        - Key: "SSOUserFirstName"
+          Value: !Ref SSOUserFirstName
+        - Key: "SSOUserLastName"
+          Value: !Ref SSOUserLastName
+        - Key: "ManagedOrganizationalUnit"
+          Value: !Ref OU
+        - Key: "AccountName"
+          Value: !Ref AccountName
+        - Key: "AccountEmail"
+          Value: !Ref AccountEmail
+
+Outputs:
+  ProvisioningArtifactId:
+    Description: Provisioning Artifact Id 
+    Value: !GetAtt ProvisioningArtifact.ArtifactId
+    Export: # added to export
+      Name: ProvisioningArtifactId

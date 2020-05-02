@@ -1,0 +1,508 @@
+
+# -------------------------------------------------------------------------------------------------
+# CloudFormation Template 1 of 3 - Real Time Automated Remediation for CIS AWS Foundations Benchmark
+#
+# Provisions Systems Manager Automation Documents for CIS AWS Foundations Benchmark 
+# Each document is invoked from a AWS Config Remediation Action 
+# 
+# @author Kanishk Mahajan
+# ---------------------------------------------------------------------------------------------------
+
+
+Parameters:
+  CISS3CloudTrailBucket:
+    Description: S3 Bucket Name for CIS CloudTrail. Pre-req.
+    Type: String
+    Default: 's3-cistrail'
+
+  AutomationAssumeRole:
+    Description: Automation Role Name. Pre-req.
+    Type: String
+    Default: 'cisbenchmarks-config-automationrole'
+
+  CloudTrailHomeRegion:
+    Description: Home Region for CIS CloudTrail
+    Type: String
+    Default: 'us-east-1'
+    
+  CloudTrailLogGroup:
+    Description: CloudTrail Log Group Name. Pre-req.
+    Type: String
+    Default: 'CloudTrail/DefaultLogGroup'
+    
+  CloudWatchRole:
+    Description: IAM Role for CloudWatch Logs. Pre-req.
+    Type: String
+    Default: 'CloudTrail_CloudWatchLogs_Role'
+          
+  TrailName:
+    Description: Name of new CloudTrail to be created in none exists
+    Type: String
+    Default: 'remediation-cis-trail'
+          
+  KmsKeyId:
+    Description: CMK KMS KeyId. Pre-req. Must exist in Home Region of the CIS CloudTrail
+    Type: String
+    Default: '838c3aa0-c499-4f3c-93c8-bd79bf248c5a'
+
+  FlowLogsRole:
+    Description: IAM Role for VPC Flow Logs. Pre-req.
+    Type: String
+    Default: 'flowlogsRole'
+
+  FlowLogsCloudWatchLogs:
+    Description: CloudWatch Logs for VPC Flow Logs. Pre-req.
+    Type: String
+    Default: 'FlowLogsCloudWatchLogs'
+
+  S3LoggingBucketName:
+    Description: S3 Bucket Name for logging. Pre-req.
+    Type: String
+    Default: 'autoreme-s3-logging'
+
+Outputs:
+  FlowLogsRoleArn:
+    Description: Arn for FlowsLogsRole
+    Value: 
+      Fn::Join:
+        - ''
+        - - 'arn:aws:iam::'
+          - Ref: AWS::AccountId
+          - ':role/'
+          - !Ref FlowLogsRole
+    Export: # added to export
+      Name: FlowLogsRoleArn
+  AutomationAssumeRoleArn:
+    Description: Arn for AutomationAssumeRole
+    Value:
+      Fn::Join:
+        - ''
+        - - 'arn:aws:iam::'
+          - Ref: AWS::AccountId
+          - ':role/'
+          - !Ref AutomationAssumeRole
+    Export: # added to export
+      Name: AutomationAssumeRoleArn
+  CloudTrailLogGroupArn:
+    Description: Arn for CloudTrail CloudWatch Logs
+    Value:
+      Fn::Join:
+          - ''
+          - - 'arn:aws:logs:'
+            - Ref: AWS::Region
+            - ':'
+            - Ref: AWS::AccountId
+            - !Sub ':log-group:${CloudTrailLogGroup}:*'
+    Export: # added to export
+      Name: CloudTrailLogGroupArn
+  S3LoggingBucketFullName:
+    Description: Arn for s3 Logging Bucket
+    Value:
+      Fn::Join:
+          - ''
+          - - !Ref S3LoggingBucketName
+            - '-'
+            - Ref: AWS::AccountId
+            - '-'
+            - Ref: AWS::Region
+    Export: # added to export
+      Name: S3LoggingBucketFullName
+  FlowLogsCloudWatchLogGroupArn:
+    Description: Arn for FlowLogs CloudWatch Logs
+    Value:
+      Fn::Join:
+          - ''
+          - - 'arn:aws:logs:'
+            - Ref: AWS::Region
+            - ':'
+            - Ref: AWS::AccountId
+            - !Sub ':log-group:${FlowLogsCloudWatchLogs}'
+    Export: # added to export
+      Name: FlowLogsCloudWatchLogGroupArn
+  FlowLogsCloudWatchLogs:
+    Description: Name of FlowLogs CloudWatch Logs
+    Value: !Ref FlowLogsCloudWatchLogs
+    Export: # added to export
+      Name: FlowLogsCloudWatchLogs
+  CloudWatchRoleArn:
+    Description: Arn for CloudTrail CloudWatchRole 
+    Value:
+      Fn::Join:
+        - ''
+        - - 'arn:aws:iam::'
+          - Ref: AWS::AccountId
+          - ':role/'
+          - !Ref CloudWatchRole
+    Export: # added to export
+      Name: CloudWatchRoleArn
+  KMSKeyArn:
+    Description: Arn for CloudTrail CloudWatch Logs
+    Value:
+      Fn::Join:
+        - ''
+        - - 'arn:aws:kms:'
+          - !Ref CloudTrailHomeRegion
+          - ':'
+          - Ref: AWS::AccountId
+          - ':key/'
+          - !Ref KmsKeyId
+    Export: # added to export
+      Name: KMSKeyArn
+Resources:
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.7 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  CustomCloudTrailEncryptionAutomationCF:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-CloudTrailEncryptionCF
+      Content:
+        schemaVersion: '0.3'
+        assumeRole:
+          Fn::Join:
+            - ''
+            - - 'arn:aws:iam::'
+              - Ref: AWS::AccountId
+              - ':role/'
+              - !Ref AutomationAssumeRole
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref AutomationAssumeRole
+          CloudTrailLogGroupArn:
+            type: String
+            default:
+              Fn::Join:
+                  - ''
+                  - - 'arn:aws:logs:'
+                    - Ref: AWS::Region
+                    - ':'
+                    - Ref: AWS::AccountId
+                    - !Sub ':log-group:${CloudTrailLogGroup}:*'
+          CloudWatchRoleArn:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref CloudWatchRole
+          TrailName:
+            type: String
+            default: !Ref TrailName
+          KMSKeyArn:
+            type: String
+            default:
+              Fn::Join:
+                  - ''
+                  - - 'arn:aws:kms:'
+                    - !Ref CloudTrailHomeRegion
+                    - ':'
+                    - Ref: AWS::AccountId
+                    - ':key/'
+                    - !Ref KmsKeyId
+        mainSteps:
+          - name: EncryptCloudTrail
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: encrypttrail_handler
+              Script: "def encrypttrail_handler(events, context):\r\n  import boto3\r\n  cloudtrail = boto3.client('cloudtrail')\r\n\r\n  CloudTrailLogGroupArn = events['CloudTrailLogGroupArn']\r\n  CloudWatchRoleArn = events['CloudWatchRoleArn']\r\n  TrailName = events['TrailName']\r\n  KMSKeyArn = events['KMSKeyArn']\r\n\r\n  response = cloudtrail.update_trail(\r\n    Name=TrailName,\r\n    S3BucketName='s3-cistrail',\r\n    S3KeyPrefix='logs',\r\n    IncludeGlobalServiceEvents=True,\r\n    IsMultiRegionTrail=True,\r\n    EnableLogFileValidation=True,\r\n    CloudWatchLogsLogGroupArn=CloudTrailLogGroupArn,\r\n    CloudWatchLogsRoleArn=CloudWatchRoleArn,\r\n    KmsKeyId=KMSKeyArn\r\n  )   "
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                CloudTrailLogGroupArn: '{{CloudTrailLogGroupArn}}'
+                CloudWatchRoleArn: '{{CloudWatchRoleArn}}'
+                TrailName: '{{TrailName}}'
+                KMSKeyArn: '{{KMSKeyArn}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.8 – Ensure rotation for customer-created CMKs is enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  CustomCMKBackingKeyRotationCF:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-CMKBackingKeyRotationCF
+      Content:
+        schemaVersion: '0.3'
+        assumeRole:
+          Fn::Join:
+            - ''
+            - - 'arn:aws:iam::'
+              - Ref: AWS::AccountId
+              - ':role/'
+              - !Ref AutomationAssumeRole
+        parameters:
+          KMSKeyArn:
+            type: String
+          AutomationAssumeRole:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref AutomationAssumeRole
+        mainSteps:
+          - name: rotatebackingkey
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: rotatebackingkey_handler
+              Script: "def rotatebackingkey_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('kms')\r\n\r\n  KMSKeyArn = events['KMSKeyArn']\r\n\r\n  response = client.enable_key_rotation(\r\n    KeyId=KMSKeyArn\r\n  )"
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                KMSKeyArn: '{{KMSKeyArn}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.4 – Ensure CloudTrail trails are integrated with Amazon CloudWatch Logs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  CustomCloudTrailUpdateCF:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-CloudTrailUpdateCF
+      Content:
+        schemaVersion: '0.3'
+        assumeRole:
+          Fn::Join:
+            - ''
+            - - 'arn:aws:iam::'
+              - Ref: AWS::AccountId
+              - ':role/'
+              - !Ref AutomationAssumeRole
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref AutomationAssumeRole
+          CloudTrailLogGroupArn:
+            type: String
+            default:
+              Fn::Join:
+                  - ''
+                  - - 'arn:aws:logs:'
+                    - Ref: AWS::Region
+                    - ':'
+                    - Ref: AWS::AccountId
+                    - !Sub ':log-group:${CloudTrailLogGroup}:*'
+          CloudWatchRoleArn:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref CloudWatchRole
+          TrailName:
+            type: String
+            default: !Ref TrailName
+        mainSteps:
+          - name: UpdateCloudTrail
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: updatetrail_handler
+              Script: "def updatetrail_handler(events, context):\r\n  import boto3\r\n  cloudtrail = boto3.client('cloudtrail')\r\n\r\n  CloudTrailLogGroupArn = events['CloudTrailLogGroupArn']\r\n  CloudWatchRoleArn = events['CloudWatchRoleArn']\r\n  TrailName = events['TrailName']\r\n\r\n  response = cloudtrail.update_trail(\r\n    Name=TrailName,\r\n    S3BucketName='s3-cistrail',\r\n    S3KeyPrefix='logs',\r\n    IncludeGlobalServiceEvents=True,\r\n    IsMultiRegionTrail=True,\r\n    EnableLogFileValidation=True,\r\n    CloudWatchLogsLogGroupArn='arn:aws:logs:us-east-1:189837654402:log-group:CloudTrail/DefaultLogGroup:*',\r\n    CloudWatchLogsRoleArn='arn:aws:iam::189837654402:role/CloudTrail_CloudWatchLogs_Role'\r\n  )   \r\n"
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                CloudTrailLogGroupArn: '{{CloudTrailLogGroupArn}}'
+                CloudWatchRoleArn: '{{CloudWatchRoleArn}}'
+                TrailName: '{{TrailName}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 1.5-1.11 – Updates IAM Account Settings Password Policy
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  CustomIAMPasswordUpdateCF:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-IAMPasswordUpdateCF
+      Content:
+        schemaVersion: '0.3'
+        assumeRole:
+          Fn::Join:
+            - ''
+            - - 'arn:aws:iam::'
+              - Ref: AWS::AccountId
+              - ':role/'
+              - !Ref AutomationAssumeRole
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref AutomationAssumeRole
+        mainSteps:
+          - name: updatepasswordpolicy
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: updateiampolicy_handler
+              Script: |
+                def updateiampolicy_handler(events, context):
+                  import boto3
+                  iam = boto3.client('iam')
+                  
+                  response = iam.update_account_password_policy(
+                                AllowUsersToChangePassword=True,
+                                HardExpiry=True,
+                                MaxPasswordAge=90 ,
+                                MinimumPasswordLength=14,
+                                PasswordReusePrevention=24,
+                                RequireLowercaseCharacters=True,
+                                RequireNumbers=True,
+                                RequireSymbols=True,
+                                RequireUppercaseCharacters=True)
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.2. – Ensure CloudTrail log file validation is enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  CustomLogFileValidationCF:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-LogFileValidationCF
+      Content:
+        schemaVersion: '0.3'
+        assumeRole:
+          Fn::Join:
+            - ''
+            - - 'arn:aws:iam::'
+              - Ref: AWS::AccountId
+              - ':role/'
+              - !Ref AutomationAssumeRole
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref AutomationAssumeRole
+          CloudTrailLogGroupArn:
+            type: String
+            default:
+              Fn::Join:
+                  - ''
+                  - - 'arn:aws:logs:'
+                    - Ref: AWS::Region
+                    - ':'
+                    - Ref: AWS::AccountId
+                    - !Sub ':log-group:${CloudTrailLogGroup}:*'
+          CloudWatchRoleArn:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref CloudWatchRole
+          TrailName:
+            type: String
+        mainSteps:
+          - name: EnableLogFileValidation
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: updatetrail_handler
+              Script: "def updatetrail_handler(events, context):\r\n  import boto3\r\n  cloudtrail = boto3.client('cloudtrail')\r\n\r\n  CloudTrailLogGroupArn = events['CloudTrailLogGroupArn']\r\n  CloudWatchRoleArn = events['CloudWatchRoleArn']\r\n  TrailName = events['TrailName']\r\n\r\n  response = cloudtrail.update_trail(\r\n    Name=TrailName,\r\n    S3BucketName='s3-cistrail',\r\n    S3KeyPrefix='logs',\r\n    IncludeGlobalServiceEvents=True,\r\n    IsMultiRegionTrail=True,\r\n    EnableLogFileValidation=True,\r\n    CloudWatchLogsLogGroupArn=CloudTrailLogGroupArn,\r\n    CloudWatchLogsRoleArn=CloudWatchRoleArn\r\n  )   "
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                CloudTrailLogGroupArn: '{{CloudTrailLogGroupArn}}'
+                CloudWatchRoleArn: '{{CloudWatchRoleArn}}'
+                TrailName: '{{TrailName}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.9 – Ensure VPC flow logging is enabled in all VPCs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  EnableVPCFlowLogsCF:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-EnableVPCFlowLogsCF
+      Content:
+        schemaVersion: '0.3'
+        assumeRole:
+          Fn::Join:
+            - ''
+            - - 'arn:aws:iam::'
+              - Ref: AWS::AccountId
+              - ':role/'
+              - !Ref AutomationAssumeRole
+        parameters:
+          CloudWatchLogGroupArn:
+            type: String
+            default:
+              Fn::Join:
+                  - ''
+                  - - 'arn:aws:logs:'
+                    - Ref: AWS::Region
+                    - ':'
+                    - Ref: AWS::AccountId
+                    - !Sub ':log-group:${FlowLogsCloudWatchLogs}'
+          FlowLogRoleArn:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref FlowLogsRole
+          CloudWatchLogGroupName:
+            type: String
+            default: !Ref FlowLogsCloudWatchLogs
+          VpcId:
+            type: String
+          AutomationAssumeRole:
+            type: String
+            default:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:iam::'
+                  - Ref: AWS::AccountId
+                  - ':role/'
+                  - !Ref AutomationAssumeRole
+        mainSteps:
+          - name: EnableFlowLogs
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: enableflowlogs_handler
+              Script: "def enableflowlogs_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('ec2')\r\n\r\n  CloudWatchLogGroupArn = events['CloudWatchLogGroupArn']\r\n  FlowLogRoleArn = events['FlowLogRoleArn']\r\n  CloudWatchLogGroupName = events['CloudWatchLogGroupName']\r\n  VpcId = events['VpcId']\r\n  AutomationAssumeRole = events['AutomationAssumeRole']\r\n\r\n  response = client.create_flow_logs(\r\n    DeliverLogsPermissionArn=FlowLogRoleArn,\r\n    ResourceIds=[\r\n        VpcId\r\n    ],\r\n    ResourceType='VPC',\r\n    TrafficType='REJECT',\r\n    LogDestinationType='cloud-watch-logs',\r\n    LogDestination=CloudWatchLogGroupArn\r\n  )"
+              InputPayload:
+                CloudWatchLogGroupName: '{{CloudWatchLogGroupName}}'
+                CloudWatchLogGroupArn: '{{CloudWatchLogGroupArn}}'
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                FlowLogRoleArn: '{{FlowLogRoleArn}}'
+                VpcId: '{{VpcId}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 1.16 – Ensure IAM policies are attached only to groups or roles
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+

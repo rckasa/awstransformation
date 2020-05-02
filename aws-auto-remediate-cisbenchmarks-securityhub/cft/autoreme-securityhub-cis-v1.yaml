@@ -1,0 +1,658 @@
+# MIT License
+
+# Copyright (c) 2020 Kanishk Mahajan
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  CloudFormation Template 2 of 3 - Real Time Automated Remediation for CIS AWS Foundations Benchmark 
+#  
+#  Pre-req : Uses the AWS SSM Automation CloudFormation Template. 
+#  This template integrates AWS Config with Custom AWS SSM Automation Remediation Documents
+# 
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Parameters:
+
+  CISCloudTrail:
+    Description: All region CloudTrail for CIS
+    Type: String
+    Default: remediation-cis-trail
+
+  CISS3CloudTrailBucket:
+    Description: S3 Bucket for CIS CloudTrail
+    Type: String
+    Default: s3-cistrail
+
+Resources:
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.3 – Ensure the S3 bucket CloudTrail logs to is not publicly accessible
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketPublicReadProhibited:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: S3BucketPublicReadProhibited
+      Description: >-
+        Checks that your Amazon S3 buckets do not allow public read access.
+        The rule checks the Block Public Access settings, the bucket policy, and the
+        bucket access control list (ACL).
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_PUBLIC_READ_PROHIBITED
+      MaximumExecutionFrequency: One_Hour
+  S3PublicReadRemediation:
+    DependsOn: S3BucketPublicReadProhibited
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: S3BucketPublicReadProhibited
+      ResourceType: "AWS::S3::Bucket"
+      TargetId: "AWS-DisableS3BucketPublicReadWrite"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        S3BucketName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.7 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailEncryptionEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: CloudTrailEncryptionEnabled
+      Description: >-
+        CIS 2.7 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::CloudTrail::Trail"
+      Source:
+        Owner: AWS
+        SourceIdentifier: CLOUD_TRAIL_ENCRYPTION_ENABLED
+      MaximumExecutionFrequency: One_Hour
+  CloudTrailEncryptionRemediation:
+    DependsOn: CloudTrailEncryptionEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: CloudTrailEncryptionEnabled
+      ResourceType: "AWS::CloudTrail::Trail"
+      TargetId: "Custom-CloudTrailEncryptionCF"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        CloudTrailLogGroupArn:
+          StaticValue:
+            Values:
+              - !ImportValue CloudTrailLogGroupArn
+        CloudWatchRoleArn:
+          StaticValue:
+            Values:
+              - !ImportValue CloudWatchRoleArn
+        KMSKeyArn:
+          StaticValue:
+            Values:
+              - !ImportValue KMSKeyArn
+        TrailName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.8 – Ensure rotation for customer created CMKs is enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CMKBackingKeyRotation:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: cmk-backing-key-rotation-enabled
+      Description: >-
+        CIS 2.8 – Ensure rotation for customer-created CMKs is enabled
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::KMS::Key"
+      Source:
+        Owner: AWS
+        SourceIdentifier: CMK_BACKING_KEY_ROTATION_ENABLED
+      MaximumExecutionFrequency: One_Hour
+  CMKBackingKeyRotationRemediation:
+    DependsOn: CMKBackingKeyRotation
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: cmk-backing-key-rotation-enabled
+      ResourceType: "AWS::KMS::Key"
+      TargetId: "Custom-CMKBackingKeyRotationCF"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        KMSKeyArn:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 4.1 – Ensure rotation for customer created CMKs is enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RestrictedSSHEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: RestrictedSSHEnabled
+      Description: >-
+        CIS 4.1 – Checks whether security groups that are in use disallow unrestricted incoming SSH traffic
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::EC2::SecurityGroup"
+      Source:
+        Owner: AWS
+        SourceIdentifier: INCOMING_SSH_DISABLED
+  RestrictedSSHEnabledRemediation:
+    DependsOn: RestrictedSSHEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: RestrictedSSHEnabled
+      ResourceType: "AWS::EC2::SecurityGroup"
+      TargetId: "AWS-DisablePublicAccessForSecurityGroup"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        IpAddressToBlock:
+          StaticValue:
+            Values:
+              - '0.0.0.0/0'
+        GroupId:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.4 – Ensure CloudTrail trails are integrated with Amazon CloudWatch Logs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailCloudWatchLogsEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: cloud_trail_cloud_watch_logs_enabled
+      Description: >-
+        CIS 2.4 – Ensure CloudTrail trails are integrated with CloudWatch Logs
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::CloudTrail::Trail"
+      Source:
+        Owner: AWS
+        SourceIdentifier: CLOUD_TRAIL_CLOUD_WATCH_LOGS_ENABLED
+      MaximumExecutionFrequency: One_Hour
+  CloudTrailCloudWatchLogsRemediation:
+    DependsOn: CloudTrailCloudWatchLogsEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: cloud_trail_cloud_watch_logs_enabled
+      ResourceType: "AWS::CloudTrail::Trail"
+      TargetId: "Custom-CloudTrailUpdateCF"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        CloudTrailLogGroupArn:
+          StaticValue:
+            Values:
+              - !ImportValue CloudTrailLogGroupArn
+        CloudWatchRoleArn:
+          StaticValue:
+            Values:
+              - !ImportValue CloudWatchRoleArn
+        TrailName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.1. – Ensure CloudTrail is enabled in all regions
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: cloudtrail-enabled
+      Description: >-
+        CIS 2.1 – Ensure CloudTrail is enabled
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::CloudTrail::Trail"
+      Source:
+        Owner: AWS
+        SourceIdentifier: CLOUD_TRAIL_ENABLED
+      MaximumExecutionFrequency: One_Hour
+  CloudTrailEnabledRemediation:
+    DependsOn: CloudTrailEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: cloudtrail-enabled
+      ResourceType: "AWS::CloudTrail::Trail"
+      TargetId: "AWS-EnableCloudTrail"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        S3BucketName:
+          StaticValue:
+            Values:
+              - !Ref CISS3CloudTrailBucket
+        TrailName:
+          StaticValue:
+            Values:
+              - !Ref CISCloudTrail
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.2 – Ensure CloudTrail log file validation is enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailLogFileValidationEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: cloud-trail-log-file-validation-enabled
+      Description: >-
+        CIS 2.2 – Ensure CloudTrail log file validation is enabled
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::CloudTrail::Trail"
+      Source:
+        Owner: AWS
+        SourceIdentifier: CLOUD_TRAIL_LOG_FILE_VALIDATION_ENABLED
+      MaximumExecutionFrequency: One_Hour
+  CloudTrailLogFileValidationRemediation:
+    DependsOn: CloudTrailLogFileValidationEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: cloud-trail-log-file-validation-enabled
+      ResourceType: "AWS::CloudTrail::Trail"
+      TargetId: "Custom-LogFileValidationCF"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        CloudTrailLogGroupArn:
+          StaticValue:
+            Values:
+              - !ImportValue CloudTrailLogGroupArn
+        CloudWatchRoleArn:
+          StaticValue:
+            Values:
+              - !ImportValue CloudWatchRoleArn
+        TrailName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 1.5,1.6,1.7.1.8,1.9,1.10,1.11. – IAM Account Settings related to Password Policy
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  IAMPasswordPolicyEnabled:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: cis-iam-password-policy
+      Description: >-
+        CIS 1.5-1.11 – Ensures IAM Account Settings are compliant with CIS
+      InputParameters:
+        RequireUppercaseCharacters: true
+        RequireLowercaseCharacters: true
+        RequireSymbols: true
+        RequireNumbers: true
+        MinimumPasswordLength: 14
+        PasswordReusePrevention: 24
+        MaxPasswordAge: 90
+      Source:
+        Owner: AWS
+        SourceIdentifier: IAM_PASSWORD_POLICY
+      MaximumExecutionFrequency: One_Hour
+  IAMPasswordPolicyRemediation:
+    DependsOn: IAMPasswordPolicyEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: cis-iam-password-policy
+      TargetId: "Custom-IAMPasswordUpdateCF"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.3 – Ensure the S3 bucket CloudTrail logs to is not publicly accessible
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketPublicWriteProhibited:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      ConfigRuleName: S3BucketPublicWriteProhibited
+      Description: "Checks that your Amazon S3 buckets do not allow public write access. The rule checks the Block Public Access settings, the bucket policy, and the bucket access control list (ACL)."
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_PUBLIC_WRITE_PROHIBITED
+      MaximumExecutionFrequency: One_Hour
+  S3PublicWriteRemediation:
+    DependsOn: S3BucketPublicWriteProhibited
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: S3BucketPublicWriteProhibited
+      ResourceType: "AWS::S3::Bucket"
+      TargetId: "AWS-DisableS3BucketPublicReadWrite"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        S3BucketName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.7 – Ensure versioning is enabled on S3 buckets
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketEnableVersioning:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      ConfigRuleName: S3BucketEnableVersioning
+      Description: "Checks versioning is enabled on S3"
+      InputParameters:
+        isMfaDeleteEnabled: 'null'
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_VERSIONING_ENABLED
+  S3BucketEnableVersioningRemediation:
+    DependsOn: S3BucketEnableVersioning
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: S3BucketEnableVersioning
+      ResourceType: "AWS::S3::Bucket"
+      TargetId: "AWS-ConfigureS3BucketVersioning"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        BucketName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+        VersioningState:
+          StaticValue:
+            Values:
+              - 'Enabled'
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.7 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketServerSideEncryptionEnabled:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      ConfigRuleName: S3BucketServerSideEncryptionEnabled
+      Description: "Checks that your Amazon S3 bucket either has S3 default encryption enabled or that the S3 bucket policy explicitly denies put-object requests without server side encryption."
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_SERVER_SIDE_ENCRYPTION_ENABLED
+  S3BucketServerSideEncryptionEnabledRemediation:
+    DependsOn: S3BucketServerSideEncryptionEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: S3BucketServerSideEncryptionEnabled
+      ResourceType: "AWS::S3::Bucket"
+      TargetId: "AWS-EnableS3BucketEncryption"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        BucketName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+        SSEAlgorithm:
+          StaticValue:
+            Values:
+              - "AES256"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.9 – Ensure VPC flow logging is enabled in all VPCs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  VPCFlowLogsEnabled:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      ConfigRuleName: VPCFlowLogsEnabled
+      Description: "Ensures VPC Flow Logs are Enabled"
+      Source:
+        Owner: AWS
+        SourceIdentifier: VPC_FLOW_LOGS_ENABLED
+  VPCFlowLogsEnabledRemediation:
+    DependsOn: VPCFlowLogsEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: VPCFlowLogsEnabled
+      TargetId: "Custom-EnableVPCFlowLogsCF"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        CloudWatchLogGroupArn:
+          StaticValue:
+            Values:
+              - !ImportValue FlowLogsCloudWatchLogGroupArn
+        CloudWatchLogGroupName:
+          StaticValue:
+            Values:
+              - !ImportValue FlowLogsCloudWatchLogs
+        FlowLogRoleArn:
+          StaticValue:
+            Values:
+              - !ImportValue FlowLogsRoleArn
+        VpcId:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 2.6 – Ensure S3 bucket access logging is enabled on the CloudTrail S3 bucket
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketLoggingEnabled:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      ConfigRuleName: S3BucketLoggingEnabled
+      Description: "Checks whether logging is enabled for your S3 buckets."
+      Scope:
+        ComplianceResourceTypes:
+        - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_LOGGING_ENABLED
+  S3BucketLoggingEnabledRemediation:
+    DependsOn: S3BucketLoggingEnabled
+    Type: 'AWS::Config::RemediationConfiguration'
+    Properties:
+      ConfigRuleName: S3BucketLoggingEnabled
+      ResourceType: "AWS::S3::Bucket"
+      TargetId: "AWS-ConfigureS3BucketLogging"
+      TargetType: "SSM_DOCUMENT"
+      TargetVersion: "1"
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !ImportValue AutomationAssumeRoleArn
+        BucketName:
+          ResourceValue:
+            Value: "RESOURCE_ID"
+        TargetBucket:
+          StaticValue:
+            Values:
+              - !ImportValue S3LoggingBucketFullName
+        GrantedPermission:
+          StaticValue:
+            Values:
+              - "FULL_CONTROL"
+        GranteeType:
+          StaticValue:
+            Values:
+              - "Group"
+        GranteeUri:
+          StaticValue:
+            Values:
+              - "http://acs.amazonaws.com/groups/s3/LogDelivery"
+      ExecutionControls:
+        SsmControls:
+          ConcurrentExecutionRatePercentage: 10
+          ErrorPercentage: 10
+      Automatic: True
+      MaximumAutomaticAttempts: 5
+      RetryAttemptSeconds: 60

@@ -1,0 +1,225 @@
+
+Parameters:
+
+# The name of the LakeFormation ML Transform
+  CFNMLTransformName:
+    Type: String
+    Default: cfn-findmatches-ml-transform-demo
+# The name of the Database to be created by the Crawler
+  CFNDatabaseName:
+    Type: String
+    Default: cfn-database-patient
+# The name of the table name to be created by the Crawler
+  CFNTableName:
+    Type: String
+    Default: cfn_table_patient
+
+# S3 bucket name that contains the source data set
+  CFNS3Source:
+    Type: String
+    Default: s3-source-duplicaterecords
+
+
+#
+#
+# Resources section defines metadata for the Patients Catalog (Database, Table), S3 Bucket that will store the Transform Results, IAM Role to be assigned to MLTransform, ML Transform, and outputs the name of the S3 Bucket created.
+
+Resources:
+# Bucket Policy for S3 Bucket. Restrict to allow access to only SSL transport.
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CFNS3Transform
+      PolicyDocument:
+        Statement:
+          -
+            Action:
+              - "s3:*"
+            Effect: "Allow"
+            Resource:
+              Fn::Join:
+                - ""
+                -
+                  - "arn:aws:s3:::"
+                  - !Ref CFNS3Transform
+                  - "/*"
+            Principal:
+              AWS:
+              - !Ref AWS::AccountId
+          -
+            Effect: Deny
+            Principal: "*"
+            Action: "*"
+            Resource:
+              Fn::Join:
+                - ""
+                -
+                  - "arn:aws:s3:::"
+                  - !Ref CFNS3Transform
+                  - "/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+# S3 Bucket to store the output of ML Transform
+  CFNS3Transform:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      AccessControl: BucketOwnerFullControl
+      LifecycleConfiguration:
+        Rules:
+          -
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+            NoncurrentVersionExpirationInDays: 3
+            Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        -
+          Key: Description
+          Value: ML Transform FindMatches Transform Data Set Bucket
+      VersioningConfiguration:
+        Status: Enabled
+
+
+#Create IAM Role assumed by the ML Transform.
+  CFNRolePatients:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AWSGlueServiceRoleMLTransform
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "glue.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: "XGlueS3PolicyForMLTransform"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action: "s3:*"
+                Resource:
+                  - !Sub arn:aws:s3:::${CFNS3Transform}
+                  - !Sub arn:aws:s3:::${CFNS3Transform}/*
+              -
+                Effect: "Allow"
+                Action: "s3:GetObject"
+                Resource:
+                  - !Sub arn:aws:s3:::${CFNS3Source}-${AWS::Region}
+                  - !Sub arn:aws:s3:::${CFNS3Source}-${AWS::Region}/*
+
+ # Create a Patients database to contain tables created by the crawler
+  CFNDatabasePatients:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref CFNDatabaseName
+        Description: "AWS Glue container to hold metadata tables for the patients data crawler"
+
+# Create a Patients Table in the Patients Database
+  GlueMLCFNPatientTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref CFNDatabasePatients
+      TableInput:
+        Name: !Ref CFNTableName
+        Parameters: { "classification" : "csv", "typeOfData" : "file", "skip.header.line.count" : "1", "compressionType" : "none","areColumnsQuoted" : "false","columnsOrdered" : "true","delimiter" : ","}
+        StorageDescriptor:
+          SerdeInfo:
+            Parameters: { "field.delim" : "," }
+            SerializationLibrary: "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          Compressed: false
+          Location: !Sub 's3://${CFNS3Source}-${AWS::Region}/source/'
+            # !Sub "s3://mltransformdataset-${AWS::Region}/source/"
+          Columns:
+            - Name: "patient_id"
+              Type: "string"
+            - Name: "culture"
+              Type: "string"
+            - Name: "sex"
+              Type: "string"
+            - Name: "age"
+              Type: "string"
+            - Name: "date_of_birth"
+              Type: "string"
+            - Name: "title"
+              Type: "string"
+            - Name: "given_name"
+              Type: "string"
+            - Name: "surname"
+              Type: "string"
+            - Name: "state"
+              Type: "string"
+            - Name: "suburb"
+              Type: "string"
+            - Name: "postcode"
+              Type: "string"
+            - Name: "street_number"
+              Type: "string"
+            - Name: "address_1"
+              Type: "string"
+            - Name: "address_2"
+              Type: "string"
+            - Name: "phone_number"
+              Type: "string"
+            - Name: "soc_sec_id"
+              Type: "string"
+
+  #Create ML Transform to Find Matches in Patients
+  MyMLTransform:
+    Type: "AWS::Glue::MLTransform"
+    Properties:
+      Name: !Ref CFNMLTransformName
+      Description: "MLTransform for Patients Matching"
+      Role: !Ref CFNRolePatients
+      WorkerType: "Standard"
+      NumberOfWorkers: 10
+      Timeout: 86400
+      MaxRetries: 3
+      InputRecordTables:
+        GlueTables:
+          - DatabaseName: !Ref CFNDatabasePatients
+            TableName: !Ref GlueMLCFNPatientTable
+      TransformParameters:
+        TransformType: "FIND_MATCHES"
+        FindMatchesParameters:
+          PrimaryKeyColumnName: "patient_id"
+          PrecisionRecallTradeoff: 0.9
+          AccuracyCostTradeoff: 1
+          EnforceProvidedLabels: True
+Outputs:
+  CFNS3Transform:
+    Value: !Ref CFNS3Transform
+    Description: Name of S3 bucket created to store the ML Transform Results
+    Export: # added to export
+      Name: CFNS3Transform
+  CFNTableName:
+    Value: !Ref CFNTableName
+    Description: Name of Glue Table created from source S3
+    Export: # added to export
+      Name: CFNTableName
+  CFNDatabaseName:
+    Value: !Ref CFNDatabaseName
+    Description: Name of Glue Database created from source S3
+    Export: # added to export
+      Name: CFNDatabaseName

@@ -1,0 +1,248 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: AWS SC Create a portfolio in Hub/Master and share it with Organizational Unit. (fdg-1pg71jh8q).
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  CloudFormation Template 1 of 2 - Secure Landing Zones and Service Catalog wuth AWS Control Tower
+#  
+#  1- Creates a Service Catalog Portfolio with attached Products in the master account
+#  2- Shares the Service Catalog Portfolio with accounts in OUs (as a parameter input)
+#  3- OUs have AWS Control Tower defined Guardrails
+#  4 - Prereq- Any Organization/OU structure
+#  
+# 
+# @author Kanishk Mahajan
+# ------------------------------------------------------------...............................................
+
+Parameters:
+  OrganizationUnitToShare:
+    Type: String
+    Description: The Organization Unit to share the portfolio with. Format - ou-abcd-12345678
+
+Mappings:
+  S3RefLinks:
+    'SCRDSMysqlTemplate':
+      Location: 'https://raw.githubusercontent.com/aws-samples/aws-service-catalog-reference-architectures/master/rds/sc-rds-mysql-ra.json'
+    'SCEC2WindowsTemplate':
+      Location: 'https://raw.githubusercontent.com/aws-samples/aws-service-catalog-reference-architectures/master/ec2/sc-ec2-windows-ra.json'
+    'SCEMRTemplate':
+      Location: 'https://raw.githubusercontent.com/aws-samples/aws-service-catalog-reference-architectures/master/emr/sc-emr-ra.json'
+
+Resources:
+
+  MasterPortfolio:
+    Type: 'AWS::ServiceCatalog::Portfolio'
+    Properties:
+      AcceptLanguage: en
+      Description: Demo Master Portfolio
+      DisplayName: Demo Master Portfolio
+      ProviderName: AWS
+
+  RDSMySQLProduct:
+    Type: 'AWS::ServiceCatalog::CloudFormationProduct'
+    Properties:
+      AcceptLanguage: en
+      Description: This product builds Amazon AWS RDS MySQL master database instance.
+      Distributor: AWS
+      Name: Amazon RDS MySQL Database
+      Owner: AWS
+      SupportEmail: email@mycompany.com
+      SupportUrl: 'https://www.mycompany.com'
+      SupportDescription: >-
+        This is a sample Amazon RDS MySQL taken from https://github.com/aws-samples/aws-service-catalog-reference-architectures/tree/master/rds.
+      ProvisioningArtifactParameters:
+        - Description: This is version 1.0 of Amazon RDS MySQL product.
+          Name: Version - 1.0
+          Info:
+            LoadTemplateFromURL: !FindInMap [S3RefLinks, SCRDSMysqlTemplate, Location]
+
+  SCEC2WindowsProduct:
+    Type: 'AWS::ServiceCatalog::CloudFormationProduct'
+    Properties:
+      AcceptLanguage: en
+      Description: This product builds Amazon Windows EC2 instance
+      Distributor: AWS
+      Name: Amazon EC2 Instance with Windows Operating System
+      Owner: AWS
+      SupportEmail: email@mycompany.com
+      SupportUrl: 'https://www.mycompany.com'
+      SupportDescription: >-
+        This is a sample of Amazon EC2 instance taken from https://github.com/aws-samples/aws-service-catalog-reference-architectures/tree/master/ec2.
+      ProvisioningArtifactParameters:
+        - Description: This is version 1.0 of Amazon EC2 Windows instance.
+          Name: Version - 1.0
+          Info:
+            LoadTemplateFromURL: !FindInMap [S3RefLinks, SCEC2WindowsTemplate, Location]
+
+  RDSMySQLProductAssociation:
+    DependsOn: 
+      - MasterPortfolio
+      - RDSMySQLProduct
+    Type: 'AWS::ServiceCatalog::PortfolioProductAssociation'
+    Properties:
+      AcceptLanguage: en
+      PortfolioId: !Ref MasterPortfolio
+      ProductId: !Ref RDSMySQLProduct
+
+  SCEC2WindowsProductAssociation:
+    DependsOn: 
+      - MasterPortfolio
+      - SCEC2WindowsProduct
+    Type: 'AWS::ServiceCatalog::PortfolioProductAssociation'
+    Properties:
+      AcceptLanguage: en
+      PortfolioId: !Ref MasterPortfolio
+      ProductId: !Ref SCEC2WindowsProduct
+
+
+
+  IamRoleLambdaForSC:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSServiceCatalogAdminFullAccess
+        - arn:aws:iam::aws:policy/AWSOrganizationsFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  LambdaExecutePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt
+        - SCOrganizationNodeShareLambda
+        - Arn
+      Principal: 'cloudformation.amazonaws.com'
+      SourceAccount: !Ref 'AWS::AccountId'
+
+  SCOrganizationNodeShareLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: IamRoleLambdaForSC
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import botocore
+          import os
+          import cfnresponse
+          import logging
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+          sc = boto3.client('servicecatalog')
+          org = boto3.client('organizations')
+
+          def get_orgshare_status():
+            OrgShareStatus = 'DISABLED'
+            try:
+              OrgShareStatus = sc.get_aws_organizations_access_status()['AccessStatus']
+            except Exception as e:
+              LOGGER.error('OrgShare Status Fetch Failed :{}'.format(e))
+            return(OrgShareStatus)
+
+          def get_ou_list():
+            ouList = []
+
+            try:
+              orgRoot = org.list_roots()['Roots'][0]['Id']
+            except Exception as e:
+              LOGGER.error('Unable to find org root: {}'.format(e))
+
+            try:
+              for ou in org.list_organizational_units_for_parent(ParentId=orgRoot)['OrganizationalUnits']:
+                ouList.append(ou['Id'])
+            except Exception as e:
+              LOGGER.error('Error getting the OU List: {}'.format(e))
+            
+            return(ouList)
+
+          def handler(event, context):
+            portId = os.environ.get("PortfolioId")
+            ouToShare = os.environ.get("OuToShare")
+            requestType = event['RequestType']
+            response = {
+              "requestType": event['RequestType'],
+              "PortfolioShareToken": "UNKNOWN",
+              "ResponseMetadata": {
+                "RequestId": 'XXXXZXXZ-ZZXX-XZZZ-ZXZZ-ZZXZXXXZXZZZ',
+                "HTTPStatusCode": 400
+              }
+            }
+
+            OrgShareStatus = get_orgshare_status()
+
+            if OrgShareStatus == 'DISABLED':
+              try:
+                LOGGER.info('Enabling OrgShare')
+                sc.enable_aws_organizations_access()
+              except Exception as e:
+                LOGGER.error('Enabling OrgShare Failed:{}'.format(e))
+                response["errorMessage"] = str(e)
+
+            OrgShareStatus = get_orgshare_status()
+            OrgOuList = get_ou_list()
+
+            if OrgShareStatus == 'ENABLED' and ouToShare in OrgOuList and requestType == 'Delete':
+              try:
+                LOGGER.info('Deletion Initiated:{} - {}'.format(portId, ouToShare))
+                response = sc.delete_portfolio_share(AcceptLanguage='en', PortfolioId=portId, \
+                          OrganizationNode={'Type':'ORGANIZATIONAL_UNIT', 'Value':ouToShare})
+              except Exception as e:
+                LOGGER.error('Deletion Failed :{}'.format(e))
+                response["errorMessage"] = str(e)
+            elif OrgShareStatus == 'ENABLED' and ouToShare in OrgOuList and requestType == 'Create':
+              try:
+                LOGGER.info('Creation Initiated: {} - {}'.format(portId, ouToShare))
+                response = sc.create_portfolio_share(AcceptLanguage='en', PortfolioId=portId, \
+                        OrganizationNode={'Type':'ORGANIZATIONAL_UNIT', 'Value':ouToShare})
+              except Exception as e:
+                LOGGER.error('Creation Failed :{}'.format(e))
+                response["errorMessage"] = str(e)
+            else:
+              LOGGER.error('UNEXPECTED INPUTS - {}.{}.{}'.format(requestType, OrgShareStatus, ouToShare))
+            
+            CustomResourcePhysicalID=response['PortfolioShareToken']
+            _ret = {}
+            _ret['Data'] = response
+
+            if response['ResponseMetadata']['HTTPStatusCode'] == 200:
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, _ret, CustomResourcePhysicalID)
+            else:
+              cfnresponse.send(event, context, cfnresponse.FAILED, _ret, CustomResourcePhysicalID)            
+      Handler: index.handler
+      Runtime: python3.7
+      MemorySize: 128
+      Role: !GetAtt IamRoleLambdaForSC.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          PortfolioId: !Ref MasterPortfolio
+          OuToShare: !Ref OrganizationUnitToShare
+
+  TriggerLambda:
+    Type: 'Custom::TriggerLambda'
+    DependsOn:
+      - SCOrganizationNodeShareLambda
+      - LambdaExecutePermission
+    Properties:
+      ServiceToken: !GetAtt
+        - SCOrganizationNodeShareLambda
+        - Arn
+
+Outputs:
+  MasterPortfolioId:
+    Description: Portfolio Id 
+    Value: !Ref MasterPortfolio
+  OrganizationalUnitId:
+    Description: Organizational Unit Shared
+    Value: !Ref OrganizationUnitToShare
