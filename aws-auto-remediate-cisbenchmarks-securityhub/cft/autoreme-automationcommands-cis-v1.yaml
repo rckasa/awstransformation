@@ -6,6 +6,9 @@
 # Each document is invoked from a AWS Config Remediation Action 
 # 
 # @author Kanishk Mahajan
+##
+## License:
+## This code is made available under the MIT-0 license. See the LICENSE file.
 # ---------------------------------------------------------------------------------------------------
 
 
