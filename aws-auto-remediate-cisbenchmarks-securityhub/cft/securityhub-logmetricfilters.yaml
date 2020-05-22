@@ -3,11 +3,9 @@
 # CloudFormation Template 3 of 3 - Real Time Automated Remediation for CIS AWS Foundations Benchmark
 #
 # Provisions CloudWatch Logs Metric Filters for CIS Benchmarks
+# This template is common to both the Security Hub detection framework as well as the framework for Config Conformance Packs
 # 
 # @author Kanishk Mahajan
-##
-## License:
-## This code is made available under the MIT-0 license. See the LICENSE file.
 # ---------------------------------------------------------------------------------------------------
 
 AWSTemplateFormatVersion: 2010-09-09
