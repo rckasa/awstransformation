@@ -5,6 +5,7 @@
 # Provisions Systems Manager Automation Documents for CIS AWS Foundations Benchmark 
 # Each document is invoked from a AWS Security Hub Custom Action 
 # 
+# 
 # @author Kanishk Mahajan
 # ---------------------------------------------------------------------------------------------------
 
@@ -303,7 +304,7 @@ Resources:
         - arn:aws:iam::aws:policy/IAMFullAccess
         - arn:aws:iam::aws:policy/AdministratorAccess
 
-# Flow Logs Role
+# Cloud Watch Role
   CloudWatchRole:
     Type: AWS::IAM::Role
     Properties:
@@ -419,7 +420,6 @@ Resources:
                   - !Ref CloudWatchRole
           TrailName:
             type: String
-            default: !Ref TrailName
           KMSKeyArn:
             type: String
             default:
