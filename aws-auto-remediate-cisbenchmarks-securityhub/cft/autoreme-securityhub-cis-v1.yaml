@@ -8,17 +8,6 @@
 # @author Kanishk Mahajan
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 
-Parameters:
-
-  CISCloudTrail:
-    Description: All region CloudTrail for CIS
-    Type: String
-    Default: remediation-cis-trail
-
-  CISS3CloudTrailBucket:
-    Description: S3 Bucket for CIS CloudTrail
-    Type: String
-    Default: s3-cistrail
 
 Resources:
 
