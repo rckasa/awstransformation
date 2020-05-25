@@ -20,7 +20,7 @@ Templates 1 and 3 are identical in both approaches. These templates provision AW
 ## Solution Design
 
 
-![Solution Design](img/arch-diagram.png)
+![Solution Design](/images/arch-diagram.png)
 
 ## How To Install
 
