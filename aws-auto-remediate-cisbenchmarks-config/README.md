@@ -1,7 +1,7 @@
 <p align="center">
 </p>
 
-# Automated, Real Time and Continuous Remediations for AWS Security Hub CIS Benchmarks
+# Automated, Real Time and Continuous Remediations for CIS Benchmarks using AWS Config
 
 The CIS Benchmarks for AWS are the only industry standard, objective, consensus-driven security guideline for AWS. They consist of 42 security policies that serve as widely adopted security best practices when configuring AWS deployments and cover all aspects of AWS compute, storage and network configurations. AWS provides built-in automated detection of CIS violations via 2 distinct mechanisms - AWS Config Rules or via AWS Security Hub ( that internally leverages Config). However, there's no built-in support for remediations. 
 
