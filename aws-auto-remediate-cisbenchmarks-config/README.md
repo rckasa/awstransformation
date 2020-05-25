@@ -9,12 +9,19 @@ These templates provide real time, continuous and automated remediations for eac
 
 This is the first of the 2 approaches---these templates are built to leverage AWS Config for both detection and automatic, continuous remediation. Another set of templates in this repository  provide an incident response dashboard mechanism  (i.e. not continuous/self healing) that natively uses AWS Security Hub for both detection and automated remediation. 
 
+Templates 1 and 3 are identical in both approaches. These 2 templates provision AWS Systems Manager Automation Documents. AWS Cloud Watch Log Metric Filters and all the required pre-reqs. Template 2 differs. For this AWS Config based approach, Template 2 leverages the same SSM documents but within AWS Config Remediation Rules while for the AWS Security Hub based approach, Template 2 leverages the same SSM documents but within AWS Security Hub Custom Actions.
+
+
 ## How it Works
 
 1. Leverages the format of AWS Conformance Templates
 2. Leverages AWS Config Managed Rules provide automated and continuous detection and recording of CIS Benchmarks - native built-in support from AWS for providing secure compliance baselines
 3. Provides NEW AWS Systems Manager Automation Documents for automated remediation for AWS Security Hub CIS Benchmark findings
 4. Provides NEW integration of AWS Config Remediations with AWS Systems Manager Automation Documents to provide continuous and real time remediations of AWS Security Hub CIS Benchmark findings
+
+## Demo
+
+![Demo](https://awscisautoreme.com/overview.html)
 
 ## How To Install
 
