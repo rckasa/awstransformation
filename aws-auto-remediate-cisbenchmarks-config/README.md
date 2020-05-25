@@ -19,8 +19,14 @@ Templates 1 and 3 are identical in both approaches. These 2 templates provision 
 3. Provides NEW AWS Systems Manager Automation Documents for automated remediation for AWS Security Hub CIS Benchmark findings
 4. Provides NEW integration of AWS Config Remediations with AWS Systems Manager Automation Documents to provide continuous and real time remediations of AWS Security Hub CIS Benchmark findings
 
-## [Click to watch a Demo of continuous compliance based on these templates](https://awscisautoreme.com/overview.html)
+## [Watch a Demo](https://awscisautoreme.com/overview.html)
 
+## Solution Design
+
+![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-auto-remediate-cisbenchmarks-config/images/arch-diagram1.png)
+
+
+![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-auto-remediate-cisbenchmarks-config/images/arch-diagram2.png)
 
 ## How To Install
 
