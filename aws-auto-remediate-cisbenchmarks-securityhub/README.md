@@ -20,7 +20,7 @@ Templates 1 and 3 are identical in both approaches. These templates provision AW
 ## Solution Design
 
 
-![Solution Design](/images/arch-diagram.png)
+![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-auto-remediate-cisbenchmarks-securityhub/images/arch-diagram.png)
 
 ## How To Install
 
