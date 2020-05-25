@@ -26,8 +26,6 @@ Templates 1 and 3 are identical in both approaches. These 2 templates provision 
 ![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-auto-remediate-cisbenchmarks-config/images/arch-diagram1.png)
 
 
-![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-auto-remediate-cisbenchmarks-config/images/arch-diagram2.png)
-
 ## How To Install
 
 1. **Template 1 of 3:** aws-cis-systemsmanagerautomations.yml
