@@ -15,9 +15,12 @@ Templates 1 and 3 are identical in both approaches. These templates provision AW
 
 1. Leverages AWS Security Hub directly to provide automated detection of CIS Benchmarks findings
 2. Provides NEW AWS Systems Manager Automation Documents for automated remediation for AWS Security Hub CIS Benchmark findings. All documents are automatically provisioned via a AWS CloudFormation template.
-3. Provides NEW integration of AWS Security Hub Custom Actions with AWS Systems Manager Automation Documents to provide real time remediations of AWS Security Hub CIS Benchmark findings. 
-* Provisions Event based (CloudWatch Events) processing of AWS Security Hub Findings based on the AWS Security Hub Finding Format (ASFF) and packages the finding as input parameters for the associated AWS Systems Manager Automation Document.
+3. Provides NEW integration of AWS Security Hub Custom Actions with AWS Systems Manager Automation Documents to provide real time remediations of AWS Security Hub CIS Benchmark findings. Provisions Event based (CloudWatch Events) processing of AWS Security Hub Findings based on the AWS Security Hub Finding Format (ASFF) and packages the finding as input parameters for the associated AWS Systems Manager Automation Document.
 
+## Solution Design
+
+
+![Solution Design](arch-diagram.png)
 
 ## How To Install
 
