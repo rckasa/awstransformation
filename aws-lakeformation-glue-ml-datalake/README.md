@@ -38,6 +38,10 @@ Demonstrates a fully automated approach to secure data by applying data transfor
   its scheduled crawling and create the new Glue Catalog (Database, Tables) from this transformed deduplicated data 
 
 
+## Solution Design
+
+![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-lakeformation-glue-ml-datalake/images/arch-diagram1.png)
+
 ## Author
 
 Kanishk Mahajan; kanishk.mahajan@gmail.com
