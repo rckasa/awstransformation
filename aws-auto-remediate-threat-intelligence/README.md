@@ -11,6 +11,10 @@
 2. Provides Remediation lambdas for EC2 event and IAM events
 3. Provides dummy EC2 instances ( malicious and compromised) with self contained user data sections to generate events
 
+## Solution Design
+
+![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-auto-remediate-threat-intelligence/images/arch-diagram1.png)
+
 
 ## How To Install
 
