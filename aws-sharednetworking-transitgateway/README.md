@@ -20,7 +20,7 @@ Provides full automation for setting up AWS Site to Site VPN and then extending 
 
 ## Solution Design
 
-![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-sharednetworking-transitgateway/images/pic-sharednetworking.png)
+![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-sharednetworking-transitgateway/images/pic-shared%20networking.png?raw=true)
 
 ## How To Install
 
