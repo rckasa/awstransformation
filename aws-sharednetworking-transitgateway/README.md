@@ -10,20 +10,20 @@ Provides full automation for setting up AWS Transit Gateway in a Shared Services
 ## AWS Organization Set up (Pre-req)
 
 1. AWS Organization with 4 OUs - Shared Services, Marketing, Sales, Finance
-2. Shared Services OU - Contains 1 Account (Shared Services Account). Provisions AWS Transit Gateway and AWS Transit Gateway VPN attachment in the Shared Services Account.
+2. Shared Services OU - Contains 1 Account (Shared Services Account)
 3. Marketing OU- Contains 3 Accounts. Uses AWS Resource Access Manager (RAM) to create a shared VPC (VPC1) across all 3 accounts. (Account 1 is the owner and RAM is used to share the VPC across Accounts 2 and 3 )
 4. Sales OU- Contains 3 Accounts. Uses AWS Resource Access Manager (RAM) to create a shared VPC (VPC2) across all 3 accounts. (Account 1 is the owner and RAM is used to share the VPC across Accounts 2 and 3 )
-5. Finance OU -Contains 3 Accounts. Uses AWS Resource Access Manager (RAM) to create a shared VPC (VPC2) across all 3 accounts. (Account 1 is the owner and RAM is used to share the VPC across Accounts 2 and 3 )
+5. Finance OU -Contains 3 Accounts. Uses AWS Resource Access Manager (RAM) to create a shared VPC (VPC3) across all 3 accounts. (Account 1 is the owner and RAM is used to share the VPC across Accounts 2 and 3 )
 
 ## AWS Shared Networking Automation
 1. Provisions AWS Transit Gateway and AWS Transit Gateway VPN attachment in the Shared Services Account of the Shared Services OU
-2. Provisions AWS Transit Gateway Attachment in the Shared VPC of Account 1 in the Marketing, Sales and Finance OUs
+2. Provisions AWS Transit Gateway VPC Attachment in the Shared VPC of Account 1 in the Marketing, Sales and Finance OUs
 3. Provisions a demo EC2 instance in the Shared VPC of Account 1 in the Marketing, Sales and Finance OUs. Updates Route Table of the Subnet to allow routing to shared vpc cidrs via Transit Gateway VPC Attachment and to the Onpremise cidr via the Transit Gateway VPN attachment.  Use for DEMO ping test.
 
 
 ## Manual Steps
 1. Use RAM to share the Transit Gateway with Shared VPC of Marketing, Sales and Finance OUs (can be automated in the future)
-2. Use specific onpremise router configuration to configure VPN tunnel with AWS Transit Gateway VPN attachment
+2. Use specific onpremise router configuration to download acond configure AWS Site to Site VPN Connection with AWS Transit Gateway VPN attachment
 3. Update AWS Transit Gateway route table with route to onpremise cidr (destination) via AWS Transit Gateway VPN attachment (target) (CloudFormation limitation- can be automated via lambda backed resource in CloudFormation in the future)
 
 
