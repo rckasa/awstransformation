@@ -23,7 +23,7 @@ Provides full automation for setting up AWS Transit Gateway in a Shared Services
 
 ## Manual Steps
 1. Use RAM to share the Transit Gateway with Shared VPC of Marketing, Sales and Finance OUs (can be automated in the future)
-2. Use specific onpremise router configuration to download acond configure AWS Site to Site VPN Connection with AWS Transit Gateway VPN attachment
+2. Use specific onpremise router configuration steps to configure AWS Site to Site VPN Connection based on AWS Transit Gateway VPN attachment
 3. Update AWS Transit Gateway route table with route to onpremise cidr (destination) via AWS Transit Gateway VPN attachment (target) (CloudFormation limitation- can be automated via lambda backed resource in CloudFormation in the future)
 
 
@@ -33,14 +33,20 @@ Provides full automation for setting up AWS Transit Gateway in a Shared Services
 
 ## How To Install
 
-1. **Template 1 of 2:** vpc-setup-v1.json
-* Verify that 2 vpcs (vpc1, vpc3) are setup with corresponding subnets, route tables and security groups per vpc. No input parameters needed. Installs in 2-3 minutes.
+1. **Template 1 of 3:** vpc-setup-v1.json. Install in Account 1 of member OUs - Marketing, Finance or Sales OUs. Use Stack Sets/manual install
+* Verify that shared VPC is setup with corresponding subnets, route tables and security groups. No input parameters needed. Installs in 2-3 minutes.
+* Use RAM to share the vpc across all accounts (Accounts 2 and 3) in the OU
 
-2. **Template 2 of 2:**  tgw-vpn-setup-v1.yml
+2. **Template 2 of 3:**  tgw-shared-master.yml. Install in Account 1 (Shared Services Account) of Shared Services OU
 * Accept defaults. Modify onpremise network CIDR and BGP ASN as per your onpremise network.
-* Verify what gets provisioned: vgw, cgw and sitetosite vpn; tgw, tgw attachments (vpc1, vpc3 and vpn); tgw route table ( associations, propagations and routes). Installs in 4-5 minutes.
-* Route tables for subnet A1 in vpc1 and vpc3 have routes to each other and the onpremise cidr
-* **For demo purposes** - 2 demo ec2 instances are provisioned in subnet A1 of each vpc (vpc1, vpc3). The template also sets up the routes in routing tables for these subnets to the transit gateway attachment targets -- to enable each VPC to route to the other VPC or the onpremise network as destinations 
+* Verify what gets provisioned: cgw and sitetosite vpn; tgw, tgw vpn attachment; tgw route table ( associations, propagations and routes). Installs in 1-2 minutes.
+* Note down Transit Gateway ID (output of cloudformation stack or from the TGW console)
+* Use RAM to share the TGW across all OUs in the Organization
+
+3. **Template 2 of 3:**  tgw-attachments-member.yml. Install in member accounts--for e.g. Account 1 of member OUs - Marketing, Finance or Sales OUs. 
+* Provide Transit Gateway ID of Step 2 as input
+* Accept defaults. Provide VPC3 CIDR as the destination CIDR value of remote VPC. For e.g. if this is installed in Account 1 of Marketing OU, then VPC3 CIDR can be the VPC CIDR of the Finance OU. 
+* **For demo purposes** - 1 demo ec2 instance is provisioned in subnet A1 of the vpc. The template also sets up the routes in routing tables for these subnets to the transit gateway attachment targets -- to enable each VPC to route to the other VPC or the onpremise network as destinations 
 
 
 ## Author
