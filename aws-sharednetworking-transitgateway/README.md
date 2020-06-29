@@ -1,22 +1,31 @@
 <p align="center">
 </p>
 
-# Enabling Secure Hybrid Networking with AWS Transit Gateway
+# Enabling Shared Hybrid Networking across an AWS Organization with AWS Transit Gateway
 
-Provides full automation for setting up AWS Site to Site VPN and then extending that same configuration with AWS Transit Gateway and AWS Transit Gateway VPC and VPN attachments.
+Assumes AWS Organizations OUs are configured that reflect the organization structure of an enterprise. For e.g  a Shared Services OU to host shared services such as DNS, Logging, Networing etc and various other OUs (Sales, Finance, Marketing etc) that may represent a business unit and contain accounts for that OU.
 
-## How it Works
+Provides full automation for setting up AWS Transit Gateway in a Shared Services OU. Also provisions TGW VPN attachment in the Shared Services OU. Provisions TGW VPC Attachments in the VPC of member accounts of the other OUs of the AWS Organization.  Allows transitory routing between all VPC of member accounts in an AWS Organization as well as transitory connectivity to VPN---all via the Transit Gateway in the Shared Services OU of the AWS Organization 
 
-1. Provisions customer gateway, vpn gateway and a site to site vpn connection
-2. Provisions Transit Gateway, Transit Gateway VPC Attachments 
-3. Provisions custom lambda for Transit Gateway VPN Attachments and corresponding site to site vpn (not currently supported in CloudFormation)
-4. Updates route tables in EC2 Subnets and Transit Gateway Route Table to demonstrate VPC1-VPC3 private connectivity and VPC3-VPN private connectivity via Transit Gateway. Demonstrates VPC1-VPN connectivity via Site to Site VPN 
+## AWS Organization Set up (Pre-req)
 
-## Why we do we care about Transit Gateways in Migration Engagements 
-1. Implements a Hub and Spoke Topology. Each VPC connection and VPN connection is a spoke that connects into a scalable, cross account Hub
-2. Provides a phased migration approach that moves individually connected, full mesh VPN - VPC and VPC-VPC topologies to a hub and spoke topology. For a network with n VPC and n VPN, this would mean O(n) connections instead of O(n*2) connections
-3. Extends transitory routing to VPC, VPN and other TGW (for cross region connectivity) via "attachments" for VPC, VPN and other Transit Gateways as well as extends transitory routing to dedicated connections via Direct Connect Gateway 
-4. Allows further scaling migration engagements by allowing onpremise networks to connect to multiple VPCs via 1 VIF connection (Transit VIF) into the Direct Connect Gateway--so 1 VIF connection establishes connectivity to multiple, potentially expanding set of VPCs.
+1. AWS Organization with 4 OUs - Shared Services, Marketing, Sales, Finance
+2. Shared Services OU - Contains 1 Account (Shared Services Account). Provisions AWS Transit Gateway and AWS Transit Gateway VPN attachment in the Shared Services Account.
+3. Marketing OU- Contains 3 Accounts. Uses AWS Resource Access Manager (RAM) to create a shared VPC (VPC1) across all 3 accounts. (Account 1 is the owner and RAM is used to share the VPC across Accounts 2 and 3 )
+4. Sales OU- Contains 3 Accounts. Uses AWS Resource Access Manager (RAM) to create a shared VPC (VPC2) across all 3 accounts. (Account 1 is the owner and RAM is used to share the VPC across Accounts 2 and 3 )
+5. Finance OU -Contains 3 Accounts. Uses AWS Resource Access Manager (RAM) to create a shared VPC (VPC2) across all 3 accounts. (Account 1 is the owner and RAM is used to share the VPC across Accounts 2 and 3 )
+
+## AWS Shared Networking Automation
+1. Provisions AWS Transit Gateway and AWS Transit Gateway VPN attachment in the Shared Services Account of the Shared Services OU
+2. Provisions AWS Transit Gateway Attachment in the Shared VPC of Account 1 in the Marketing, Sales and Finance OUs
+3. Provisions a demo EC2 instance in the Shared VPC of Account 1 in the Marketing, Sales and Finance OUs. Updates Route Table of the Subnet to allow routing to shared vpc cidrs via Transit Gateway VPC Attachment and to the Onpremise cidr via the Transit Gateway VPN attachment.  Use for DEMO ping test.
+
+
+## Manual Steps
+1. Use RAM to share the Transit Gateway with Shared VPC of Marketing, Sales and Finance OUs (can be automated in the future)
+2. Use specific onpremise router configuration to configure VPN tunnel with AWS Transit Gateway VPN attachment
+3. Update AWS Transit Gateway route table with route to onpremise cidr (destination) via AWS Transit Gateway VPN attachment (target) (CloudFormation limitation- can be automated via lambda backed resource in CloudFormation in the future)
+
 
 ## Solution Design
 
@@ -32,16 +41,6 @@ Provides full automation for setting up AWS Site to Site VPN and then extending 
 * Verify what gets provisioned: vgw, cgw and sitetosite vpn; tgw, tgw attachments (vpc1, vpc3 and vpn); tgw route table ( associations, propagations and routes). Installs in 4-5 minutes.
 * Route tables for subnet A1 in vpc1 and vpc3 have routes to each other and the onpremise cidr
 * **For demo purposes** - 2 demo ec2 instances are provisioned in subnet A1 of each vpc (vpc1, vpc3). The template also sets up the routes in routing tables for these subnets to the transit gateway attachment targets -- to enable each VPC to route to the other VPC or the onpremise network as destinations 
-
-
-3. **Manual Steps**
-* OnPremise ( specfic to your onpremise router)
-1. Configure tunnel with onpremise router for tgw-cgw vpn connection
-2. Configure tunnel with onpremise router for vgw-cgw vpn connection
-* AWS (CloudFormation limitations)
-1. Go to tgw route table- add route to the onpremise network via the vpn attachment 
-2. Go to site to site vpn for vgw - configure static ip address for the onpremise network
-
 
 
 ## Author
