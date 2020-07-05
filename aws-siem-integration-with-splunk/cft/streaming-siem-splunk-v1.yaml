@@ -12,32 +12,32 @@
 Parameters:
   SplunkStreamingLambdaS3Bucket:
     Type: String
-    Default: splunk-streaming-lambda
+    Default: s3-splunk-lambda
     MinLength: 1
     MaxLength: 80
     Description: |
-      S3 Bucket that contains the SplunkStreamingLambda code
+      S3 Bucket that contains the SplunkStreamingLambda code. Append AccountId and Region for full name
   SplunkStreamingLambdaPath:
     Type: String
-    Default: Lambda/splunkstreaminglambda.zip
+    Default: Lambda/splunklambda.zip
     ConstraintDescription: '[A-Za-z0-9\-]+/'
     Description: |
       S3 Key for SplunkStreamingLambda zip file.
   SplunkHECToken:
     Type: String
-    Default: 285645a7-a8b3-4e9a-9bf9-4e976df4a8c6
+    Default: 5d213d21-aa99-4d3f-a00f-08c2b730d40b
     ConstraintDescription: '[A-Za-z0-9\-]+/'
     Description: |
-      Secret Key for Splunk Enterprise
+      Splunk HEC Token
   SplunkHECUrl:
     Type: String
-    Default: http://ec2-54-219-171-242.us-west-1.compute.amazonaws.com:8088/services/collector
+    Default: https://54.218.32.43:8088/services/collector
     ConstraintDescription: '[A-Za-z0-9\-]+/'
     Description: |
-      Splunk Enterprise Admin Service URL
+      Splunk HEC URL
   LogGroupName:
     Type: String
-    Default: CloudTrail/DefaultLogGroup
+    Default: aws-controltower/CloudTrailLogs
     ConstraintDescription: '[A-Za-z0-9\-]+/'
     Description: |
       CloudWatch Logs Trigger for Splunk Lambda
@@ -65,12 +65,7 @@ Resources:
     Type: "AWS::Logs::SubscriptionFilter"
     DependsOn: "LambdaInvokePermission"
     Properties: 
-      LogGroupName:
-        Fn::Join:
-            - ''
-            - - !Ref LogGroupName
-              - '-'
-              - !Ref 'AWS::Region'
+      LogGroupName: !Ref LogGroupName
       FilterPattern: ""
       DestinationArn: 
         Fn::GetAtt: 
@@ -81,7 +76,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: SplunkStreamingLambda
-      MemorySize: 128
+      MemorySize: 512
       Role: !GetAtt SplunkStreamingLambdaExecutionRoleCF.Arn
       Handler: index.handler
       Code:
@@ -94,7 +89,7 @@ Resources:
                 - '-'
                 - !Ref 'AWS::Region'
         S3Key: !Ref SplunkStreamingLambdaPath
-      Runtime: nodejs8.10
+      Runtime: nodejs12.x
       Timeout: 300
       Environment:
         Variables:
@@ -104,8 +99,8 @@ Resources:
   LambdaInvokePermission: 
       Type: AWS::Lambda::Permission
       Properties:
-        FunctionName: !Ref "SplunkStreamingLambda"
-        Action: "lambda:InvokeFunction"
+        FunctionName: !Ref SplunkStreamingLambda
+        Action: lambda:InvokeFunction
         Principal: !Sub "logs.${AWS::Region}.amazonaws.com"
         SourceArn:  
             Fn::Join:
@@ -114,4 +109,4 @@ Resources:
                   - Ref: AWS::Region
                   - ':'
                   - Ref: AWS::AccountId
-                  - !Sub ':log-group:${LogGroupName}-${AWS::Region}:*'
+                  - !Sub ':log-group:${LogGroupName}:*'
