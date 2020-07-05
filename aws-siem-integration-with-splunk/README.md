@@ -29,7 +29,7 @@ Provides full automation for setting up AWS Transit Gateway in a Shared Services
 
 ## Solution Design
 
-![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-sharednetworking-transitgateway/images/pic-shared%20networking.png?raw=true)
+![Solution Design](https://github.com/kmahajan11/awstransformation/blob/master/aws-siem-integration-with-splunk/images/arch-diagram.png)
 
 ## How To Install
 
