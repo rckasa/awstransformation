@@ -8,7 +8,7 @@ Provides full automation for near real-time data ingestion into Splunk without t
 ## Manual Steps (Splunk) - Configure Splunk HEC
 1. Follow steps as outlined here - https://docs.splunk.com/Documentation/Splunk/latest/Data/UsetheHTTPEventCollector#Configure_the_HTTP_Event_Collector_in_Splunk_Web
 2. Modify/augment steps above to ensure the following-
-* Open port 8088 in the security group for the Splunk AMI (if the default SSL port of 8088 is selected in the HEC configuration). The HEC URL for the lambda would be https://<splunk ami public ip/dns>:8080/events/collector
+* Open port 8088 in the security group for the Splunk AMI (if the default SSL port of 8088 is selected in the HEC configuration). The HEC URL for the lambda would be https://<splunk ami public ip/dns>:8088/events/collector
 * In the global settings, select sourcetype as _json
 * In the HEC confguration (Settings->Data Input), ensure that sourcetype is set to "aws:cloudwatchlogs"
 * To visualize and for dashbaording simply search for sourcetype="aws:cloudwatchlogs"
