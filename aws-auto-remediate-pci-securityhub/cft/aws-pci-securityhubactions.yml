@@ -2859,6 +2859,118 @@ Resources:
           - sts:AssumeRole
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [PCI.Redshift.1] Amazon Redshift clusters should prohibit public access
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RedshiftNonPublicClusterEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RedshiftNonPublicClusterEnabledRule
+      Description: "[PCI.Redshift.1] Amazon Redshift clusters should prohibit public access"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RDSNonPublicInstanceEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RedshiftNonPublicClusterEnabledLambda"
+              - "Arn"
+          Id: "PCI Redshift.1"
+   
+  RedshiftNonPublicClusterEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI Redshift.1
+      Description: [PCI.Redshift.1] Amazon Redshift clusters should prohibit public access
+      Id: PCI Redshift.1
+
+  RedshiftNonPublicClusterEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RedshiftNonPublicClusterEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RedshiftNonPublicClusterEnabledRule"
+          - "Arn"
+
+  RedshiftNonPublicClusterEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: RedshiftNonPublicClusterEnabledLambda
+      Description: [PCI.Redshift.1] Amazon Redshift clusters should prohibit public access
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt RedshiftNonPublicClusterEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              clusterId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsRdsDbInstance']['DBInstanceIdentifier'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-ModifyRedshiftCluster',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'clusterId': [ clusterId ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RedshiftNonPublicClusterLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: RedshiftNonPublicClusterEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
 #  [PCI.RDS.1] RDS snapshots should prohibit public access
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 
