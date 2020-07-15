@@ -1467,7 +1467,7 @@ Resources:
                 snapshotId: '{{snapshotId}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# [PCI.RDS.2] RDS DB Instances should prohibit public access
+# [PCI.Redshift.1] Amazon Redshift clusters should prohibit public access
 # ------------------------------------------------------------------------------------------------------------------------------------------------------- 
 
   RedshiftNonPublicCluster:
@@ -1500,10 +1500,10 @@ Resources:
             inputs:
               Runtime: python3.6
               Handler: script_handler
-              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('rds')\r\n\r\n  dbinstanceId = events['dbinstanceId']\r\n\r\n  response = client.modify_db_instance(\r\n    ApplyImmediately=True,\r\n    DBInstanceIdentifier=dbinstanceId,\r\n    PubliclyAccessible='False'\r\n  )\r\n"
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('redshift')\r\n\r\n  clusterId = events['clusterId']\r\n\r\n  response = client.modify_cluster(\r\n    ClusterIdentifier=clusterId,\r\n    PubliclyAccessible='False'\r\n  )"
               InputPayload:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
-                dbinstanceId: '{{clusterId}}'
+                clusterId: '{{clusterId}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 # [PCI.RDS.2] RDS DB Instances should prohibit public access
