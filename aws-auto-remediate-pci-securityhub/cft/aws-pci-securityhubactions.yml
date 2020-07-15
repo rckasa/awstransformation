@@ -1,0 +1,3084 @@
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  CloudFormation Template 2 of 3 - Real Time Automated Remediation for PCI DSS Findings based on Security Hub 
+#  
+#  Pre-req : Uses the AWS SSM Automation CloudFormation Template. 
+#  This template integrates AWS Security Hub custom actions with Custom AWS SSM Automation Remediation Documents
+# 
+# @author Kanishk Mahajan
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+Resources:
+
+  CreateSecurityHubCustomActionTargetLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CreateSecurityHubCustomActionTargetLambda
+      Description: Custom resource to create an action target in Security Hub
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt CreateSecurityHubCustomActionTargetLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import os
+          def lambda_handler(event, context):
+              try:
+                  properties = event['ResourceProperties']
+                  region = os.environ['AWS_REGION']
+                  client = boto3.client('securityhub', region_name=region)
+                  responseData = {}
+                  if event['RequestType'] == 'Create':
+                      response = client.create_action_target(
+                          Name=properties['Name'],
+                          Description=properties['Description'],
+                          Id=properties['Id']
+                      )
+                      responseData['Arn'] = response['ActionTargetArn']
+                  elif event['RequestType'] == 'Delete':
+                      account_id = context.invoked_function_arn.split(":")[4]
+                      client.delete_action_target(
+                          ActionTargetArn=f"arn:aws:securityhub:{region}:{account_id}:action/custom/{properties['Id']}"
+                      )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              except Exception as e:
+                  print(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+  CreateSecurityHubCustomActionTargetLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: CreateActionTarget-LambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - securityhub:CreateActionTarget
+            - securityhub:DeleteActionTarget
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.S3.1 – S3 Buckets should prohibit public write access
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketPublicWriteProhibitedRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: S3BucketPublicWriteProhibitedRule
+      Description: "PCI.S3.1 - S3 Buckets should prohibit public write access"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt S3BucketPublicWriteActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "S3BucketPublicWriteRemediationLambda"
+              - "Arn"
+          Id: "PCI.S3.1"
+  
+  S3BucketPublicWriteActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.S3.1
+      Description: S3 Public Write Event from Security Hub
+      Id: PCI.S3.1
+
+  S3BucketPublicWriteRemediationLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "S3BucketPublicWriteRemediationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "S3BucketPublicWriteProhibitedRule"
+          - "Arn"
+
+  S3BucketPublicWriteRemediationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: S3RemediationLambdaRole
+    Properties:
+      FunctionName: S3BucketPublicWriteRemediationLambda
+      Description: PCI S3.1 Remediation using AWS SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  S3RemediationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+            
+              S3BucketArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              S3BucketName = S3BucketArn.replace("arn:aws:s3:::", "")
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='AWS-DisableS3BucketPublicReadWrite',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'S3BucketName': [ S3BucketName ]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  S3RemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: S3RemediationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - s3:GetBucketAcl
+            - s3:GetBucketPolicy
+            - s3:PutBucketAcl
+            - s3:PutBucketPolicy
+            - s3:PutBucketPublicAccessBlock
+            - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.S3.1 – S3 Buckets should prohibit public read access
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketPublicReadProhibitedRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: S3BucketPublicReadProhibitedRule
+      Description: "PCI.S3.2 - S3 Buckets should prohibit public read access"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt S3BucketPublicReadActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "S3BucketPublicReadRemediationLambda"
+              - "Arn"
+          Id: "PCI.S3.2"
+  
+  S3BucketPublicReadActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.S3.2
+      Description: S3 Public Write Event from Security Hub
+      Id: PCI.S3.2
+
+  S3BucketPublicReadRemediationLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "S3BucketPublicReadRemediationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "S3BucketPublicReadProhibitedRule"
+          - "Arn"
+
+  S3BucketPublicReadRemediationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: S3RemediationLambdaRole
+    Properties:
+      FunctionName: S3BucketPublicReadRemediationLambda
+      Description: PCI S3.2 Remediation using AWS SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  S3RemediationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+            
+              S3BucketArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              S3BucketName = S3BucketArn.replace("arn:aws:s3:::", "")
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='AWS-DisableS3BucketPublicReadWrite',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'S3BucketName': [ S3BucketName ]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  S3RemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: S3RemediationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - s3:GetBucketAcl
+            - s3:GetBucketPolicy
+            - s3:PutBucketAcl
+            - s3:PutBucketPolicy
+            - s3:PutBucketPublicAccessBlock
+            - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.CloudTrail.1 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
+# 
+# Provisions a custom security hub action 
+# Leverages the custom security hub action as source for CWE rule 
+# Provisions a lambda as a CWE target for custom action
+# Leverages custom SSM Automation document for remediation
+
+# Repeats same pattern above for each PCI remediation
+# 
+# @kanishk.mahajan
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailEncryptionEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: CloudTrailEncryptionEnabledRule
+      Description: "PCI.CloudTrail.1 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt CloudTrailEncryptionEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "CloudTrailEncryptionEnabledLambda"
+              - "Arn"
+          Id: "PCI.CloudTrail.1"
+   
+  CloudTrailEncryptionEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.CloudTrail.1
+      Description: PCI.CloudTrail.1 Event from Security Hub
+      Id: PCI.CloudTrail.1
+
+  CloudTrailEncryptionEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "CloudTrailEncryptionEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "CloudTrailEncryptionEnabledRule"
+          - "Arn"
+
+  CloudTrailEncryptionEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: CloudTrailEncryptionEnabledLambdaRole
+    Properties:
+      FunctionName: CloudTrailEncryptionEnabledLambda
+      Description: CIS 2.7 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  CloudTrailEncryptionEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          CloudTrailLogGroupArn : !ImportValue CloudTrailLogGroupArn
+          CloudWatchRoleArn : !ImportValue CloudWatchRoleArn
+          KMSKeyArn: !ImportValue KMSKeyArn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              TrailArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              TrailArn_1 = TrailArn.split(':')[-1] 
+              TrailName = TrailArn_1.replace("trail/","")
+
+              Id = str(event['detail']['findings'][0]['Id'])
+              CloudTrailLogGroupArn = os.environ['CloudTrailLogGroupArn']
+              CloudWatchRoleArn = os.environ['CloudWatchRoleArn']
+              KMSKeyArn = os.environ['KMSKeyArn']
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-CloudTrailEncryptionCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'TrailName': [ TrailName ],
+                          'CloudTrailLogGroupArn': [ CloudTrailLogGroupArn ],
+                          'CloudWatchRoleArn': [ CloudWatchRoleArn ],
+                          'KMSKeyArn': [ KMSKeyArn ]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  CloudTrailEncryptionEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: CloudTrailEncryptionEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - kms:*
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.KMS.1 – Ensure rotation for customer created CMKs is enabled
+# 
+# Provisions a custom security hub action 
+# Leverages the custom security hub action as source for CWE rule 
+# Provisions a lambda as a CWE target for custom action
+# Leverages custom SSM Automation document for remediation
+# Repeats same pattern above for each PCI remediation
+# 
+# @kanishk.mahajan
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CMKBackingKeyRotationRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: CMKBackingKeyRotationRule
+      Description: "PCI.KMS.1 – Ensure rotation for customer created CMKs is enabled"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt CMKBackingKeyRotationActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "CMKBackingKeyRotationLambda"
+              - "Arn"
+          Id: "PCI.KMS.1"
+   
+  CMKBackingKeyRotationActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: RotateCMK
+      Description: PCI KMS.1 Event from Security Hub
+      Id: PCI.KMS.1
+
+  CMKBackingKeyRotationPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "CMKBackingKeyRotationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "CMKBackingKeyRotationRule"
+          - "Arn"
+
+  CMKBackingKeyRotationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: CMKBackingKeyRotationLambdaRole
+    Properties:
+      FunctionName: CMKBackingKeyRotationLambda
+      Description: PCI KMS.1 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  CMKBackingKeyRotationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              
+              KMSKeyArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              KMSKeyId_1 = KMSKeyArn.split(':')[-1] 
+              KMSKeyId = KMSKeyId_1.replace("key/","")
+
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-CMKBackingKeyRotationCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'KMSKeyArn': [ KMSKeyId ]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  CMKBackingKeyRotationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: CMKBackingKeyRotationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.EC2.3 – Unused EC2 Security Groups should be removed
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RemoveUnusedEC2SecurityGroupsRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RemoveUnusedEC2SecurityGroupsRule
+      Description: "PCI.EC2.3 – Unused EC2 Security Groups should be removed"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RemoveUnusedEC2GroupsActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RemoveUnusedEC2GroupsRemediationLambda"
+              - "Arn"
+          Id: "PCI.EC2.3"
+   
+  RemoveUnusedEC2GroupsActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.EC2.3
+      Description: PCI.EC2.3 Event from Security Hub
+      Id: PCI.EC2.3
+
+  RemoveUnusedEC2GroupsLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RemoveUnusedEC2GroupsRemediationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RemoveUnusedEC2SecurityGroupsRule"
+          - "Arn"
+
+  RemoveUnusedEC2GroupsRemediationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: RemoveUnusedEC2GroupsRemediationLambdaRole
+    Properties:
+      FunctionName: RemoveUnusedEC2GroupsRemediationLambda
+      Description: PCI.EC2.3 Remediation using AWS SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  RemoveUnusedEC2GroupsRemediationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              securitygroup = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2SecurityGroup']['GroupId'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-RemoveSecurityGroup',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'groupId': [ securitygroup]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RemoveUnusedEC2GroupsRemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: RemoveUnusedEC2GroupsRemediationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - ec2:DescribeSecurityGroupReferences
+            - ec2:DescribeSecurityGroups
+            - ec2:UpdateSecurityGroupRuleDescriptionsEgress
+            - ec2:UpdateSecurityGroupRuleDescriptionsIngress
+            - ec2:RevokeSecurityGroupIngress
+            - ec2:RevokeSecurityGroupEgress
+            - ec2:*
+            - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+ 
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.EC2.2 VPC default security group should prohibit inbound and outbound traffic
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RestrictEC2SecurityGroupsRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RestrictEC2SecurityGroupsRule
+      Description: "PCI.EC2.2 VPC default security group should prohibit inbound and outbound traffic"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RestrictEC2GroupsActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RestrictEC2GroupsRemediationLambda"
+              - "Arn"
+          Id: "PCI.EC2.2"
+   
+  RestrictEC2GroupsActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.EC2.2
+      Description: PCI.EC2.2 Event from Security Hub
+      Id: PCI.EC2.2
+
+  RestrictEC2GroupsLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RestrictEC2GroupsRemediationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RestrictEC2SecurityGroupsRule"
+          - "Arn"
+
+  RestrictEC2GroupsRemediationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: RestrictEC2GroupsRemediationLambdaRole
+    Properties:
+      FunctionName: RestrictEC2GroupsRemediationLambda
+      Description: PCI.EC2.2 Remediation using AWS SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  RestrictEC2GroupsRemediationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              securitygroup = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2SecurityGroup']['GroupId'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              IpAddressToBlock = '0.0.0.0/0'
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-RestrictSecurityGroup',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'groupId': [ securitygroup],
+                           'IpAddressToBlock': [IpAddressToBlock]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RestrictEC2GroupsRemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: RestrictEC2GroupsRemediationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - ec2:DescribeSecurityGroupReferences
+            - ec2:DescribeSecurityGroups
+            - ec2:UpdateSecurityGroupRuleDescriptionsEgress
+            - ec2:UpdateSecurityGroupRuleDescriptionsIngress
+            - ec2:RevokeSecurityGroupIngress
+            - ec2:RevokeSecurityGroupEgress
+            - ec2:*
+            - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+ 
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# [PCI.AutoScaling.1] Auto scaling groups associated with a load balancer should use health checks
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  AutoScalingELBHealthCheckRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: AutoScalingELBHealthCheckRule
+      Description: "[PCI.AutoScaling.1] Auto scaling groups associated with a load balancer should use health checks"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt AutoScalingELBHealthCheckActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "AutoScalingELBHealthCheckRemediationLambda"
+              - "Arn"
+          Id: "PCI.AutoScaling.1"
+   
+  AutoScalingELBHealthCheckActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.AutoScaling.1
+      Description: PCI.AutoScaling.1 Event from Security Hub
+      Id: PCI.AutoScaling.1
+
+  AutoScalingELBHealthCheckLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "AutoScalingELBHealthCheckRemediationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "AutoScalingELBHealthCheckRule"
+          - "Arn"
+
+  AutoScalingELBHealthCheckRemediationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: AutoScalingELBHealthCheckRemediationLambdaRole
+    Properties:
+      FunctionName: AutoScalingELBHealthCheckRemediationLambda
+      Description: PCI.AutoScaling.1 Remediation using AWS SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  AutoScalingELBHealthCheckRemediationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              ASGGroupName = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsAutoScalingAutoScalingGroup']['AutoScalingGroupName'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-AutoScalingELBHealthCheck',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'ASGGroupName': [ ASGGroupName]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  AutoScalingELBHealthCheckRemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: AutoScalingELBHealthCheckRemediationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - ec2:DescribeSecurityGroupReferences
+            - ec2:DescribeSecurityGroups
+            - ec2:UpdateSecurityGroupRuleDescriptionsEgress
+            - ec2:UpdateSecurityGroupRuleDescriptionsIngress
+            - ec2:RevokeSecurityGroupIngress
+            - ec2:RevokeSecurityGroupEgress
+            - ec2:*
+            - autoscaling:*
+            - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# [PCI.CodeBuild.2] CodeBuild project environment variables should not contain clear text credentials
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CodeBuildEnvVariablesRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: CodeBuildEnvVariablesRule
+      Description: "[PCI.CodeBuild.2] CodeBuild project environment variables should not contain clear text credentials"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt CodeBuildEnvVariablesActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "CodeBuildEnvVariablesRemediationLambda"
+              - "Arn"
+          Id: "PCI.CodeBuild.2"
+   
+  CodeBuildEnvVariablesRuleActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.CodeBuild.2
+      Description: PCI.CodeBuild.2 Event from Security Hub
+      Id: PCI.CodeBuild.2
+
+  CodeBuildEnvVariablesRuleLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "CodeBuildEnvVariablesRemediationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "CodeBuildEnvVariablesRule"
+          - "Arn"
+
+  CodeBuildEnvVariablesRuleRemediationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: CodeBuildEnvVariablesRuleRemediationLambdaRole
+    Properties:
+      FunctionName: CodeBuildEnvVariablesRuleRemediationLambda
+      Description: PCI.CodeBuild.2 Remediation using AWS SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  CodeBuildEnvVariablesRuleRemediationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              codebuildproject = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsCodeBuildProject']['Name'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-CodeBuildUpdateProject',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'projectName': [ codebuildproject]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  CodeBuildEnvVariablesRuleRemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: CodeBuildEnvVariablesRuleRemediationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - ec2:DescribeSecurityGroupReferences
+            - ec2:DescribeSecurityGroups
+            - ec2:UpdateSecurityGroupRuleDescriptionsEgress
+            - ec2:UpdateSecurityGroupRuleDescriptionsIngress
+            - ec2:RevokeSecurityGroupIngress
+            - ec2:RevokeSecurityGroupEgress
+            - ec2:*
+            - codebuild:*
+            - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# [PCI.EC2.4] Unused EC2 EIPs should be removed
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  ReleaseEIPRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: ReleaseEIPRule
+      Description: "PCI.EC2.4 Unused EC2 EIPs should be removed"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt ReleaseEIPActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "ReleaseEIPRemediationLambda"
+              - "Arn"
+          Id: "PCI.EC2.4"
+   
+  ReleaseEIPRuleActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.EC2.4
+      Description: PCI.EC2.4 Event from Security Hub
+      Id: PCI.EC2.4
+
+  ReleaseEIPRuleLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "ReleaseEIPRuleRemediationLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "ReleaseEIPRule"
+          - "Arn"
+
+  ReleaseEIPRuleRemediationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: ReleaseEIPRuleRemediationLambdaRole
+    Properties:
+      FunctionName: ReleaseEIPRuleRemediationLambda
+      Description: PCI.EC2.4 Remediation using AWS SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  ReleaseEIPRuleRemediationLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              networkinterfaceId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2NetworkInterface']['NetworkInterfaceId'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ec2 = boto3.resource('ec2')
+              network_interface = ec2.NetworkInterface('networkinterfaceId')
+              AllocationId = network_interface.association_attribute['AllocationId']
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='AWS-ReleaseElasticIP',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'AllocationId': [ AllocationId]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  ReleaseEIPRuleRemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: ReleaseEIPRuleRemediationLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - ec2:DescribeSecurityGroupReferences
+            - ec2:DescribeSecurityGroups
+            - ec2:UpdateSecurityGroupRuleDescriptionsEgress
+            - ec2:UpdateSecurityGroupRuleDescriptionsIngress
+            - ec2:RevokeSecurityGroupIngress
+            - ec2:RevokeSecurityGroupEgress
+            - ec2:*
+            - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.CloudTrail.4 – Ensure CloudTrail trails are integrated with Amazon CloudWatch Logs
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailCloudWatchLogsEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: CloudTrailCloudWatchLogsEnabledRule
+      Description: "PCI.CloudTrail.4 – Ensure CloudTrail trails are integrated with Amazon CloudWatch Logs"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt CloudTrailCloudWatchLogsActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "CloudTrailCloudWatchLogsLambda"
+              - "Arn"
+          Id: "PCI.CloudTrail.4"
+   
+  CloudTrailCloudWatchLogsActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.CloudTrail.4
+      Description: PCI.CloudTrail.4 Event from Security Hub
+      Id: PCI.CloudTrail.4
+
+  CloudTrailCloudWatchLogsEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "CloudTrailCloudWatchLogsLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "CloudTrailCloudWatchLogsEnabledRule"
+          - "Arn"
+
+  CloudTrailCloudWatchLogsLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: CloudTrailCloudWatchLogsLambdaRole
+    Properties:
+      FunctionName: CloudTrailCloudWatchLogsLambda
+      Description: PCI.CloudTrail.4 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  CloudTrailCloudWatchLogsLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          CloudTrailLogGroupArn : !ImportValue CloudTrailLogGroupArn
+          CloudWatchRoleArn : !ImportValue CloudWatchRoleArn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+
+              TrailArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              TrailArn_1 = TrailArn.split(':')[-1] 
+              TrailName = TrailArn_1.replace("trail/","")
+
+              Id = str(event['detail']['findings'][0]['Id'])
+              CloudTrailLogGroupArn = os.environ['CloudTrailLogGroupArn']
+              CloudWatchRoleArn = os.environ['CloudWatchRoleArn']
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-CloudTrailUpdateCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'TrailName': [ TrailName ],
+                          'CloudTrailLogGroupArn': [ CloudTrailLogGroupArn ],
+                          'CloudWatchRoleArn': [ CloudWatchRoleArn ]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  CloudTrailCloudWatchLogsLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: CloudTrailCloudWatchLogsLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.CloudTrail.2 – Ensure CloudTrail is enabled in all regions
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: CloudTrailEnabledRule
+      Description: "CIS AWS Foundations Benchmark - 2.1. – Ensure CloudTrail is enabled in all regions"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt CloudTrailEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "CloudTrailEnabledLambda"
+              - "Arn"
+          Id: "PCI.CloudTrail.2"
+   
+  CloudTrailEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.CloudTrail.2
+      Description: PCI.CloudTrail.2 Event from Security Hub
+      Id: PCI.CloudTrail.2
+
+  CloudTrailEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "CloudTrailEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "CloudTrailEnabledRule"
+          - "Arn"
+
+  CloudTrailEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: CloudTrailEnabledLambdaRole
+    Properties:
+      FunctionName: CloudTrailEnabledLambda
+      Description: CIS 2.1 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  CloudTrailEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          S3BucketName : !ImportValue CISS3CloudTrailBucket
+          TrailName : !ImportValue CISCloudTrail
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              TrailName = os.environ['TrailName']
+              S3BucketName = os.environ['S3BucketName']
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='AWS-EnableCloudTrail',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'TrailName': [ TrailName ],
+                          'S3BucketName': [ S3BucketName]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  CloudTrailEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: CloudTrailEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - cloudtrail:*
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.CloudTrail.3 – Ensure CloudTrail log file validation is enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  CloudTrailLogFileValidationEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: CloudTrailLogFileValidationEnabledRule
+      Description: "CIS AWS Foundations Benchmark - 2.2 – Ensure CloudTrail log file validation is enabled"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt CloudTrailLogFileValidationEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "CloudTrailLogFileValidationEnabledLambda"
+              - "Arn"
+          Id: "PCI.CloudTrail.3"
+   
+  CloudTrailLogFileValidationEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.CloudTrail.3
+      Description: PCI.CloudTrail.3 Event from Security Hub
+      Id: PCI.CloudTrail.3
+
+  CloudTrailLogFileValidationEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "CloudTrailLogFileValidationEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "CloudTrailLogFileValidationEnabledRule"
+          - "Arn"
+
+  CloudTrailLogFileValidationEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: CloudTrailLogFileValidationEnabledLambdaRole
+    Properties:
+      FunctionName: CloudTrailLogFileValidationEnabledLambda
+      Description: CIS 2.2 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  CloudTrailLogFileValidationEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          CloudTrailLogGroupArn : !ImportValue CloudTrailLogGroupArn
+          CloudWatchRoleArn : !ImportValue CloudWatchRoleArn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              
+              TrailArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              TrailArn_1 = TrailArn.split(':')[-1] 
+              TrailName = TrailArn_1.replace("trail/","")
+
+              Id = str(event['detail']['findings'][0]['Id'])
+              CloudTrailLogGroupArn = os.environ['CloudTrailLogGroupArn']
+              CloudWatchRoleArn = os.environ['CloudWatchRoleArn']
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-LogFileValidationCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'TrailName': [ TrailName ],
+                          'CloudTrailLogGroupArn': [ CloudTrailLogGroupArn ],
+                          'CloudWatchRoleArn': [ CloudWatchRoleArn ]
+                      }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  CloudTrailLogFileValidationEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: CloudTrailLogFileValidationEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 1.5,1.6,1.7.1.8,1.9,1.10,1.11. – IAM Account Settings related to Password Policy
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  IAMPasswordPolicyEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: IAMPasswordPolicyEnabledRule
+      Description: "CIS AWS Foundations Benchmark - 1.5-1.11. – IAM Account Settings related to Password Policy"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt IAMPasswordPolicyEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "IAMPasswordPolicyEnabledLambda"
+              - "Arn"
+          Id: "IAMPasswdPolicy"
+   
+  IAMPasswordPolicyEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: IAMPasswdPolicy
+      Description: CIS1.5-1.11 Events from Security Hub
+      Id: IAMPasswdPolicy
+
+  IAMPasswordPolicyEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "IAMPasswordPolicyEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "IAMPasswordPolicyEnabledRule"
+          - "Arn"
+
+  IAMPasswordPolicyEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: IAMPasswordPolicyEnabledLambdaRole
+    Properties:
+      FunctionName: IAMPasswordPolicyEnabledLambda
+      Description: CIS 1.5-1.11 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  IAMPasswordPolicyEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-IAMPasswordUpdateCF',
+                      DocumentVersion='1', # default
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  IAMPasswordPolicyEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: IAMPasswordPolicyEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - iam:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# CIS AWS Foundations Benchmark - 1.3-1.4 – Disable and Rotate IAM Access Key that is older than 90 days
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  IAMRotate90daysEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: IAMRotate90daysEnabledRule
+      Description: "CIS AWS Foundations Benchmark - 1.3-1.4 – Disable and Rotate IAM Access Key that is older than 90 days"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt IAMRotate90daysEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "IAMRotate90daysEnabledLambda"
+              - "Arn"
+          Id: "IAMRotate90days"
+   
+  IAMRotate90daysEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: IAMRotate90days
+      Description: CIS1.3-1.4 Events from Security Hub
+      Id: IAMRotate90days
+
+  IAMRotate90daysEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "IAMRotate90daysEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "IAMRotate90daysEnabledRule"
+          - "Arn"
+
+  IAMRotate90daysEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: IAMRotate90daysEnabledLambdaRole
+    Properties:
+      FunctionName: IAMRotate90daysEnabledLambda
+      Description: CIS 1.3-1.4 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  IAMRotate90daysEnabledLambdaRole.Arn
+      Runtime: python3.6
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              userArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              userArn_1 = userArn.split(':')[-1] 
+              username = userArn_1.replace("user/","")
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-IAMKeyRotate90DaysCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'username': [ username ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  IAMRotate90daysEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: IAMRotate90daysEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - iam:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.IAM.1 – Deactivate Root Account IAM Access Key
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  DeactivateRootIAMAccessKeyEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: DeactivateRootIAMAccessKeyEnabledRule
+      Description: "PCI.IAM.1 – Deactivate Root Account Access Key"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt DeactivateRootIAMAccessKeyEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "DeactivateRootIAMAccessKeyEnabledLambda"
+              - "Arn"
+          Id: "PCI.IAM.1"
+   
+  DeactivateRootIAMAccessKeyEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.IAM.1
+      Description: PCI.IAM.1 Events from Security Hub
+      Id: PCI.IAM.1
+
+  DeactivateRootIAMAccessKeyEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "DeactivateRootIAMAccessKeyEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "DeactivateRootIAMAccessKeyEnabledRule"
+          - "Arn"
+
+  DeactivateRootIAMAccessKeyEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: DeactivateRootIAMAccessKeyEnabledLambdaRole
+    Properties:
+      FunctionName: DeactivateRootIAMAccessKeyEnabledLambda
+      Description: PCI.IAM.1 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt  DeactivateRootIAMAccessKeyEnabledLambdaRole.Arn
+      Runtime: python3.6
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              userArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              username = userArn.split(':')[-1] 
+     
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-DeactivateRootIAMAccessKeyCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'username': [ username ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  DeactivateRootIAMAccessKeyEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: DeactivateRootIAMAccessKeyEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - iam:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+  
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.IAM.2 – IAM users should not have IAM Policies attached. Ensure IAM policies are attached only to groups or roles
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  IAMUserPolicyDetachEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: IAMUserPolicyDetachEnabledRule
+      Description: "PCI.IAM.2 – Ensure IAM policies are attached only to groups or roles"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt IAMUserPolicyDetachEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "IAMUserPolicyDetachEnabledLambda"
+              - "Arn"
+          Id: "PCI.IAM.2"
+   
+  IAMUserPolicyDetachEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.IAM.2
+      Description: PCI.IAM.2 Events from Security Hub
+      Id: PCI.IAM.2
+
+  IAMUserPolicyDetachEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "IAMUserPolicyDetachEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "IAMUserPolicyDetachEnabledRule"
+          - "Arn"
+
+  IAMUserPolicyDetachEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: IAMUserPolicyDetachEnabledLambdaRole
+    Properties:
+      FunctionName: IAMUserPolicyDetachEnabledLambda
+      Description: PCI.IAM.2 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt IAMUserPolicyDetachEnabledLambdaRole.Arn
+      Runtime: python3.6
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              userArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              userArn_1 = userArn.split(':')[-1] 
+              username = userArn_1.replace("user/","")
+
+              Id = str(event['detail']['findings'][0]['Id'])
+
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-IAMUserPolicyDetachCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'username': [ username ],
+                          'findingid': [Id]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  IAMUserPolicyDetachEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: IAMUserPolicyDetachEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - iam:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# PCI.IAM.3 – Ensure IAM policies that allow full "*:*" administrative privileges are not created
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  IAMFullAdminPolicyDetachEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: IAMFullAdminPolicyDetachEnabledRule
+      Description: "PCI.IAM.3 – Ensure IAM policies are attached only to groups or roles"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt IAMFullAdminPolicyDetachEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "IAMFullAdminPolicyDetachEnabledLambda"
+              - "Arn"
+          Id: "PCI.IAM.3"
+   
+  IAMFullAdminPolicyDetachEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI.IAM.3
+      Description: PCI.IAM.3 Events from Security Hub
+      Id: PCI.IAM.3
+
+  IAMFullAdminPolicyDetachEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "IAMFullAdminPolicyDetachEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "IAMFullAdminPolicyDetachEnabledRule"
+          - "Arn"
+
+  IAMFullAdminPolicyDetachEnabledLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: IAMFullAdminPolicyDetachEnabledLambdaRole
+    Properties:
+      FunctionName: IAMFullAdminPolicyDetachEnabledLambda
+      Description: PCI.IAM.3 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt IAMFullAdminPolicyDetachEnabledLambdaRole.Arn
+      Runtime: python3.6
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              userArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              userArn_1 = userArn.split(':')[-1] 
+              username = userArn_1.replace("user/","")
+
+
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-IAMFullAdminPolicyDetachCF',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'username': [ username ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  IAMFullAdminPolicyDetachEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: IAMFullAdminPolicyDetachEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - iam:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  PCI.S3.4 - Ensure server side encryption is enabled on S3 buckets
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3BucketServerSideEncryptionEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: S3BucketServerSideEncryptionEnabledRule
+      Description: "PCI S3.4 – Ensure server side encryption is enabled on S3 buckets"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt S3BucketServerSideEncryptionEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "S3BucketServerSideEncryptionEnabledLambda"
+              - "Arn"
+          Id: "PCI S3.4"
+   
+  S3BucketServerSideEncryptionEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: S3Encryption
+      Description: PCI S3.4 Event from Security Hub
+      Id: PCI S3.4
+
+  S3BucketServerSideEncryptionEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "S3BucketServerSideEncryptionEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "S3BucketServerSideEncryptionEnabledRule"
+          - "Arn"
+
+  S3BucketServerSideEncryptionEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: S3BucketServerSideEncryptionEnabledLambda
+      Description: PCI S3.4 Remediation using Custom SSM Document
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt S3BucketServerSideEncryptionEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              S3BucketArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              S3BucketName = S3BucketArn.replace("arn:aws:s3:::", "")
+              SSEAlgorithm = 'AES256'
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='AWS-EnableS3BucketEncryption',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'BucketName': [ S3BucketName ],
+                          'SSEAlgorithm': [SSEAlgorithm]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  S3BucketServerSideEncryptionEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: S3BucketServerSideEncryptionEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - s3:*
+            - kms:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# [PCI.S3.3] S3 buckets should have cross-region replication enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  S3ReplicationEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: S3ReplicationEnabledRule
+      Description: "[PCI.S3.3] S3 buckets should have cross-region replication enabled"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt S3ReplicationEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "S3ReplicationEnabledLambda"
+              - "Arn"
+          Id: "PCI S3.3"
+   
+  S3ReplicationEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI S3.3
+      Description: [PCI S3.3] S3 buckets should have cross-region replication enabled
+      Id: PCI S3.3
+
+  S3ReplicationEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "S3ReplicationEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "S3ReplicationEnabledRule"
+          - "Arn"
+
+  S3ReplicationEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: S3ReplicationEnabledLambda
+      Description: [PCI S3.3] S3 buckets should have cross-region replication enabled
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt S3ReplicationEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          DestinationBucketName : !ImportValue S3ReplicationBucketFullName
+          S3IAMReplicationRole : !ImportValue S3BucketReplicationRoleArn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              S3BucketArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              SourceBucketName = S3BucketArn.replace("arn:aws:s3:::", "")
+              Id = str(event['detail']['findings'][0]['Id'])
+
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-EnableS3Replication',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'S3IAMReplicationRole': [ S3IAMReplicationRole ],
+                          'SourceBucketName': [ SourceBucketName],
+                          'DestinationBucketName': [DestinationBucketName]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  S3ReplicationEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: S3ReplicationEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - s3:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  SSMBaselinePatchComplianceEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: SSMBaselinePatchComplianceEnabledRule
+      Description: "[PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt SSMBaselinePatchComplianceEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "SSMBaselinePatchComplianceEnabledLambda"
+              - "Arn"
+          Id: "PCI SSM.1"
+   
+  SSMBaselinePatchComplianceEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI SSM.1
+      Description: [PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation
+      Id: PCI SSM.1
+
+  SSMBaselinePatchComplianceEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "SSMBaselinePatchComplianceEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "SSMBaselinePatchComplianceEnabledRule"
+          - "Arn"
+
+  SSMBaselinePatchComplianceEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SSMBaselinePatchComplianceEnabledLambda
+      Description: [PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt SSMBaselinePatchComplianceEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              InstanceId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2Instance']['ImageId'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                
+                 response = ssm.send_command(
+                      InstanceIds=[ InstanceId ],
+                      DocumentName='AWS-RunPatchBaseline',
+                      DocumentVersion='1',
+                      TimeoutSeconds=360,
+                      Comment='RunPatchBaseline Invoked in response to Security Hub finding',
+                      Parameters={ 'Operation': [ 'Install' ] },
+                      CloudWatchOutputConfig={ 'CloudWatchOutputEnabled': True }
+                  )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  SSMBaselinePatchComplianceEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: SSMBaselinePatchComplianceEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - ssm:*
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - ec2:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [PCI.Lambda.1] Lambda functions should prohibit public access
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RestrictPublicAccessLambdaEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RestrictPublicAccessLambdaEnabledRule
+      Description: "[PCI.Lambda.1] Lambda functions should prohibit public access"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RestrictPublicAccessLambdaEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RestrictPublicAccessLambdaEnabledLambda"
+              - "Arn"
+          Id: "PCI Lambda.1"
+   
+  RestrictPublicAccessLambdaEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI Lambda.1
+      Description: [PCI.Lambda.1] Lambda functions should prohibit public access
+      Id: PCI Lambda.1
+
+  RestrictPublicAccessLambdaEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RestrictPublicAccessLambdaEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RestrictPublicAccessLambdaEnabledRule"
+          - "Arn"
+
+  RestrictPublicAccessLambdaEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: RestrictPublicAccessLambdaEnabledLambda
+      Description: [PCI.Lambda.1] Lambda functions should prohibit public access
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt RestrictPublicAccessLambdaEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          accountID : !Ref 'AWS::AccountId'
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              functionname = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsLambdaFunction']['FunctionName'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              accountID = os.environ['accountID']
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-RestrictPublicLambda',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'functionname': [ functionname ],
+                          'accountID': [accountID]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RestrictPublicAccessLambdaEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: RestrictPublicAccessLambdaEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - lambda:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [PCI.Lambda.2] Lambda functions should be in a VPC
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RestrictLambdaVPCEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RestrictLambdaVPCLambdaEnabledRule
+      Description: "[PCI.Lambda.2] Lambda functions should be in a VPC"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RestrictLambdaVPCEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RestrictLambdaVPCLambdaEnabledLambda"
+              - "Arn"
+          Id: "PCI Lambda.2"
+   
+  RestrictLambdaVPCLambdaEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI Lambda.2
+      Description: [PCI.Lambda.2] Lambda functions should be in a VPC
+      Id: PCI Lambda.2
+
+  RestrictLambdaVPCLambdaEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RestrictLambdaVPCEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RestrictLambdaVPCLambdaEnabledRule"
+          - "Arn"
+
+  RestrictLambdaVPCLambdaEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: RestrictLambdaVPCLambdaEnabledLambda
+      Description: [PCI.Lambda.2] Lambda functions should be in a VPC
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt RestrictLambdaVPCLambdaEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          securitygroupid : !ImportValue securitygroupid
+          subnet1id : !ImportValue subnetvpc1A2
+          subnet2id : !ImportValue subnetvpc1A3
+          rolearn: !ImportValue RestrictLambdaVPCRoleArn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              functionname = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsLambdaFunction']['FunctionName'])
+              Id = str(event['detail']['findings'][0]['Id'])
+        
+              ssm = boto3.client('ssm')
+              rolearn = os.environ['rolearn']
+              securitygroupid = os.environ['securitygroupid']
+              subnet1id = os.environ['subnet1id']
+              subnet2id = os.environ['subnet2id']
+
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-RestrictLambdaVPC',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'functionname': [functionname],
+                          'rolearn': [rolearn],
+                          'subnet1id': [subnet1id],
+                          'subnet2id': [subnet2id],
+                          'securitygroupid': [ securitygroupid]
+                       
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RestrictLambdaVPCLambdaEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: RestrictLambdaVPCLambdaEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - lambda:*
+            - ec2:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [PCI.RDS.2] RDS instances should prohibit public access
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RDSNonPublicInstanceEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RDSNonPublicInstanceEnabledRule
+      Description: "[PCI.RDS.2] RDS instances should prohibit public access"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RDSNonPublicInstanceEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RDSNonPublicInstanceEnabledLambda"
+              - "Arn"
+          Id: "PCI RDS.2"
+   
+  RDSNonPublicInstanceEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI RDS.2
+      Description: [PCI.RDS.2] RDS instances should prohibit public access
+      Id: PCI RDS.2
+
+  RDSNonPublicInstanceEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RDSNonPublicInstanceEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RDSNonPublicInstanceEnabledRule"
+          - "Arn"
+
+  RDSNonPublicInstanceEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: RDSNonPublicInstanceEnabledLambda
+      Description: [PCI.RDS.2] RDS instances should prohibit public access
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt RDSNonPublicInstanceEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              dbinstanceId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsRdsDbInstance']['DBInstanceIdentifier'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-ModifyRDSDBInstance',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'dbinstanceId': [ dbinstanceId ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RDSNonPublicInstanceLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: RDSNonPublicInstanceEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [PCI.RDS.1] RDS snapshots should prohibit public access
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RDSPublicNonRestoreSnapshotEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RDSPublicNonRestoreSnapshotEnabledRule
+      Description: "[PCI.RDS.1] RDS snapshots should prohibit public access"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RDSPublicNonRestoreSnapshotEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RDSPublicNonRestoreSnapshotEnabledLambda"
+              - "Arn"
+          Id: "PCI RDS.1"
+   
+  RDSPublicNonRestoreSnapshotEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI RDS.1
+      Description: [PCI.RDS.1] RDS snapshots should prohibit public access
+      Id: PCI RDS.1
+
+  RDSPublicNonRestoreSnapshotEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RDSPublicNonRestoreSnapshotEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RDSPublicNonRestoreSnapshotEnabledRule"
+          - "Arn"
+
+  RDSPublicNonRestoreSnapshotEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: RDSPublicNonRestoreSnapshotEnabledLambda
+      Description: [PCI.RDS.1] RDS snapshots should prohibit public access
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt RDSPublicNonRestoreSnapshotEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              snapshotId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsRdsDbInstance']['SnapshotId'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-ModifyRDSSnapshot',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'snapshotId': [ snapshotId ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RDSPublicNonRestoreSnapshotEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: RDSPublicNonRestoreSnapshotEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  EBSPublicNonRestoreSnapshotEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: EBSPublicNonRestoreSnapshotEnabledRule
+      Description: "[PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt EBSPublicNonRestoreSnapshotEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "EBSPublicNonRestoreSnapshotEnabledLambda"
+              - "Arn"
+          Id: "PCI EC2.1"
+   
+  EBSPublicNonRestoreSnapshotEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: PCI EC2.1
+      Description: [PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable
+      Id: PCI EC2.1
+
+  EBSPublicNonRestoreSnapshotEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "EBSPublicNonRestoreSnapshotEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "EBSPublicNonRestoreSnapshotEnabledRule"
+          - "Arn"
+
+  EBSPublicNonRestoreSnapshotEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: EBSPublicNonRestoreSnapshotEnabledLambda
+      Description: [PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt EBSPublicNonRestoreSnapshotEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              snapshotId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2Volume']['SnapshotId'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-ModifySnapshot',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'snapshotId': [ snapshotId ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  EBSPublicNonRestoreSnapshotEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: EBSPublicNonRestoreSnapshotEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - ec2:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
