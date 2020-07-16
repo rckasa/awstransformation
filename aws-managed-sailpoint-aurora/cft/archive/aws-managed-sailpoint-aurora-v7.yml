@@ -1,0 +1,740 @@
+
+# ---------------------------------------------------------------------------------------------
+## Template 2 of 2 - AWS Managed SailPoint Deployment
+##  
+## AWS CodePipeline, AWS ECR, AWS ECS, AWS Aurora and EC2 Bastion Host Setup
+##
+## Uses AWS CodePipeline/CodeBuild and AWS ECR to provide a serverless Devops pipeline. 
+## ----Builds and install SailPoint Docker Image
+## Deploys an Autoscaled and Load Balanced ECS Fargate serverless Cluster. 
+## -----Leverages Secure VPC template for subnet, networking and AZ
+## Deploys a Scalable Aurora Cluster. Leverages Secure VPC template for subnet, networking and AZ
+## Uses AWS Secrets MAnager for DB credentials
+
+
+## @author Kanishk Mahajan
+# ---------------------------------------------------------------------------------------------
+
+
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS CodePipeline, ECR, ECS Fargate, Aurora and EC2 Bastion setup for Managed SailPoint Deployment
+
+## Parameters
+Parameters:
+
+  ECRName:
+    Type: String
+    Description: |
+      ECR repo that hosts the SailPoint Image. This is a pre-req. Must be created prior to running the template
+    Default: cda-penguin-app
+
+  IIQS3BucketPrefix:
+    Description: Prefix for S3 Bucket for IIQ Software. For DEMO only. Will be replaced with AWS CodeCommit
+    Type: String
+    Default: s3-iiq
+
+  RepositoryName:
+    Description: CodeCommit Repsitory for SailPoint IIQ
+    Type: String
+    Default: IIQRepository
+
+  BranchName:
+    Description: Branch in the CodeCommit Repsitory for SailPoint IIQ
+    Type: String
+    Default: master
+
+## Conditions
+Conditions:
+  cond3AZs: !Equals [ !FindInMap [ RegionalSettings, !Ref "AWS::Region", azs ], "3" ]
+
+## Mappings
+Mappings:
+  RegionalSettings:
+    us-east-1:
+      bastionAmi: ami-04b9e92b5572fa0d1
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Ohio
+      azs: "3"
+    us-east-2:
+      bastionAmi: ami-0d5d9d301c853a04a
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: N. Virginia
+      azs: "3"
+    us-west-1:
+      bastionAmi: ami-0dd655843c87b6930
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: N. California
+      azs: "2"
+    us-west-2:
+      bastionAmi: ami-06d51e91cea0dac8d
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Oregon
+      azs: "3"
+    ca-central-1:
+      bastionAmi: ami-0d0eaed20348a3389
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Montreal
+      azs: "2"
+    eu-central-1:
+      bastionAmi: ami-0cc0a36f626a4fdf5
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Frankfurt
+      azs: "3"
+    eu-west-1:
+      bastionAmi: ami-02df9ea15c1778c9c
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Ireland
+      azs: "3"
+    eu-west-2:
+      bastionAmi: ami-0be057a22c63962cb
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: London
+      azs: "3"
+    eu-west-3:
+      bastionAmi: ami-087855b6c8b59a9e4
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Paris
+      azs: "3"
+    ap-southeast-1:
+      bastionAmi: ami-061eb2b23f9f8839c
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Singapore
+      azs: "3"
+    ap-southeast-2:
+      bastionAmi: ami-00a54827eb7ffcd3c
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Sydney
+      azs: "3"
+    ap-south-1:
+      bastionAmi: ami-0123b531fc646552f
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Mumbai
+      azs: "3"
+    ap-northeast-1:
+      bastionAmi: ami-0cd744adeca97abb1
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Tokyo
+      azs: "3"
+    ap-northeast-2:
+      bastionAmi: ami-00379ec40a3e30f87
+      bastionType: m5.large
+      nodeType: db.r5.large
+      name: Seoul
+      azs: "3"
+
+  ClusterSettings:
+    global:
+      dbSchema: mylab
+      dbDriver: mysql
+      dbVersion: 5.7.mysql_aurora.2.07.1
+      dbEngine: aurora-mysql
+      dbFamily: aurora-mysql5.7
+    scaling:
+      maxCapacity: 2
+      minCapacity: 1
+      cpuLoadTarget: 20
+    sysbench:
+      dbSchema: sbtpcc
+      runTime: '300'
+      numThreads: '4'
+      numTables: '8'
+      numWarehouses: '2'
+
+
+## Resources
+Resources:
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+# This section builds the SailPoint Docker Image, installs it in AWS ECR and then deploys it on AWS ECS using AWS CodePipeline
+# 
+# Uses AWS CodeCommit for event driven code checkins from a local Git repo. 
+# Uses AWS CodeBuild  to build the SailPoint Docker  and install it in AWS ECR
+# Uses AWS CodeBuild  to deploy the SailPoint Docker on AWS ECS Fargate serverless clusters
+# Uses AWS CodePipeline as serverless DevOps pipeline. To be used for both installs as well as configuration changes
+# 
+# ------------------------------------------------------------------------------------------------------------------------------------------------------- 
+
+  CodePipelineArtifactStoreBucket:
+    Type: 'AWS::S3::Bucket'
+  CodePipelineArtifactStoreBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref CodePipelineArtifactStoreBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: DenyUnEncryptedObjectUploads
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Join 
+              - ''
+              - - !GetAtt 
+                  - CodePipelineArtifactStoreBucket
+                  - Arn
+                - /*
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'aws:kms'
+          - Sid: DenyInsecureConnections
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: !Join 
+              - ''
+              - - !GetAtt 
+                  - CodePipelineArtifactStoreBucket
+                  - Arn
+                - /*
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
+
+  AmazonCloudWatchEventRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'codepipeline:StartPipelineExecution'
+                Resource: !Join 
+                  - ''
+                  - - 'arn:aws:codepipeline:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+                    - ':'
+                    - !Ref IIQPipeline
+
+
+  AmazonCloudWatchEventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - CodeCommit Repository State Change
+        resources:
+          - !Join 
+            - ''
+            - - 'arn:aws:codecommit:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':'
+              - !Ref RepositoryName
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - master
+      Targets:
+        - Arn: !Join 
+            - ''
+            - - 'arn:aws:codepipeline:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':'
+              - !Ref IIQPipeline
+          RoleArn: !GetAtt 
+            - AmazonCloudWatchEventRole
+            - Arn
+          Id: iiq-pipeline
+
+  IIQPipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      Name: iiq-pipeline
+      RoleArn: !GetAtt 
+        - CodePipelineServiceRole
+        - Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: IIQSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                BranchName: !Ref BranchName
+                RepositoryName: !Ref RepositoryName
+                PollForSourceChanges: false
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: IIQBuild
+              InputArtifacts:
+                - Name: SourceOutput
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              RunOrder: 2
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodePipelineArtifactStoreBucket
+
+  CodePipelineServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+      - PolicyName: Codepipeline-base-policy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: 
+                - 'codebuild:*'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 's3:GetObject'
+                - 's3:PutObject'
+                - 's3:GetObjectVersion'
+                - 's3:GetBucketVersioning'
+                - 's3:GetBucketAcl'
+                - 's3:GetBucketLocation'
+                - 's3:ListBucket'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ecr:BatchCheckLayerAvailability'
+                - 'ecr:CompleteLayerUpload'
+                - 'ecr:GetAuthorizationToken'
+                - 'ecr:InitiateLayerUpload'
+                - 'ecr:PutImage'
+                - 'ecr:UploadLayerPart'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ecs:*'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 's3:*'
+                - 'cloudformation:*'
+                - 'iam:PassRole'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'codecommit:CancelUploadArchive'
+                - 'codecommit:GetBranch'
+                - 'codecommit:GetCommit'
+                - 'codecommit:GetUploadArchiveStatus'
+                - 'codecommit:UploadArchive'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'codedeploy:CreateDeployment'
+                - 'codedeploy:GetApplicationRevision'
+                - 'codedeploy:GetDeployment'
+                - 'codedeploy:GetDeploymentConfig'
+                - 'codedeploy:RegisterApplicationRevision'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'codebuild:BatchGetBuilds'
+                - 'codebuild:StartBuild'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'devicefarm:ListProjects'
+                - 'devicefarm:ListDevicePools'
+                - 'devicefarm:GetRun'
+                - 'devicefarm:GetUpload'
+                - 'devicefarm:CreateUpload'
+                - 'devicefarm:ScheduleRun'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'lambda:InvokeFunction'
+                - 'lambda:ListFunctions'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'elasticbeanstalk:*'
+                - 'ec2:*'
+                - 'elasticloadbalancing:*'
+                - 'autoscaling:*'
+                - 'cloudwatch:*'
+                - 'sns:*'
+                - 'rds:*'
+                - 'sqs:*'
+                - 'ecs:*'
+              Resource: '*'
+        
+  IIQLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/iiq-fargate-container-${AWS::StackName}
+
+  CodeBuildProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        EnvironmentVariables:
+        - Name: AWS_ACCOUNT_ID
+          Type: PLAINTEXT
+          Value: !Ref 'AWS::AccountId'
+        - Name: AWS_DEFAULT_REGION
+          Type: PLAINTEXT
+          Value: !Ref 'AWS::Region'
+        - Name: IMAGE_REPO_NAME
+          Type: PLAINTEXT
+          Value: !Ref ECRName
+        - Name: IMAGE_TAG
+          Type: PLAINTEXT
+          Value: 'latest'
+        Image: 'aws/codebuild/standard:2.0'
+        PrivilegedMode: true # required to build Docker images
+        Type: LINUX_CONTAINER  
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Ref IIQLogGroup
+          Status: ENABLED
+      ServiceRole: !GetAtt CodePipelineServiceRole.Arn
+      Source:
+        BuildSpec: 'buildspec.yml'
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 30
+
+  
+  StartBuild:
+    Type: Custom::ExecuteCodeDeploy
+    Properties:
+      ServiceToken: !GetAtt 'ExecuteCodeDeploy.Arn'
+      BuildProject: !Ref CodeDeployProject
+
+  ExecuteCodeDeploy:
+    Type: AWS::Lambda::Function
+    DependsOn: CodeDeployLambdaExecutionRole
+    Properties:
+      Handler: index.handler
+      Timeout: 600
+      Role: !GetAtt 'CodeDeployLambdaExecutionRole.Arn'
+      Runtime: python3.6
+      Code:
+        ZipFile: |
+          import logging
+          import boto3
+          import os
+          import cfnresponse
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          client = boto3.client('codebuild')
+          def handler(event, context):
+              if event['RequestType'] != 'Delete':
+                try:
+                    buildproject = event['ResourceProperties']['BuildProject']
+                    response = client.start_build(projectName=event['ResourceProperties']['BuildProject'])
+                except Exception as e:
+                    print(e)
+                    cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, "CustomResourcePhysicalID")
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, "CustomResourcePhysicalID")
+              return "Success"
+
+  CodeDeployLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+      - PolicyName: lamdbda-base-policy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: 
+                - 'codebuild:*'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+
+
+  CodeDeployProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        EnvironmentVariables:
+        - Name: cluster
+          Type: PLAINTEXT
+          Value: !Ref IIQDefaultECSCluster
+        - Name: service
+          Type: PLAINTEXT
+          Value: !Ref IIQDefaultECSService
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:2.0'
+        PrivilegedMode: true # required to build Docker images
+        Type: LINUX_CONTAINER  
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Ref IIQLogGroup
+          Status: ENABLED
+      ServiceRole: !GetAtt CodePipelineServiceRole.Arn
+      TimeoutInMinutes: 30
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+                commands:
+                    - pip install --upgrade awscli
+            build:
+                commands:
+                    - aws ecs update-service --force-new-deployment --service $service --cluster $cluster
+
+# ---------------------------------------------------------------------------------------
+# This section provisions the ECS Fargate Stack for the SailPoint Deployment
+# 
+# Provisions a ECS Fargate Task, ECS Fargate Service, ALB and ECS Fargate Cluster 
+# Deploys the SailPoint Docker Image on the AWS ECS Cluster
+# Provides Autoscaling and Load Balancing via ECS Service
+# --------------------------------------------------------------------------------------
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+         -
+          Effect: Allow
+          Principal:
+            Service:
+              - ecs-tasks.amazonaws.com
+          Action: sts:AssumeRole
+
+  ECSTaskExecutionPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ECSTaskExecutionPolicy
+      PolicyDocument:
+        Statement:
+        -
+          Effect: Allow
+          Action:
+            - "ecr:GetAuthorizationToken"
+            - "ecr:BatchCheckLayerAvailability"
+            - "ecr:GetDownloadUrlForLayer"
+            - "ecr:BatchGetImage"
+            - "logs:CreateLogStream"
+            - "logs:PutLogEvents"
+            - "logs:CreateLogGroup"
+            - "logs:DescribeLogStreams"
+          Resource: "*"
+      Roles:
+        -
+          Ref: ECSTaskExecutionRole
+
+  IIQDefaultECSTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Cpu: 2048
+          Essential: true
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRName}:latest"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-group: !Ref IIQLogGroup
+              awslogs-stream-prefix: /ecs
+              awslogs-create-group: true
+          MemoryReservation: 4096
+          Name: iiq-fargate-container
+          PortMappings:
+           - ContainerPort: 80
+      Cpu: '2048'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      Memory: '4096'
+      NetworkMode: awsvpc
+
+  IIQDefaultALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      LoadBalancerAttributes:
+        - Key: access_logs.s3.enabled
+          Value: false
+        - Key: idle_timeout.timeout_seconds
+          Value: 300
+        - Key: routing.http2.enabled
+          Value: true
+        - Key: deletion_protection.enabled
+          Value: false
+      Name: iiq-fargate-alb
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref IIQDefaultSecurityGroup
+      Subnets:
+        - !ImportValue subnetvpc1A1
+        - !ImportValue subnetvpc1B1
+      Type: application
+
+  # listener for default ALB
+  ALBHTTPlistener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref IIQDefaultTargetGroup
+      LoadBalancerArn: !Ref IIQDefaultALB
+      Port: 80
+      Protocol: HTTP
+
+  IIQDefaultSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: !Join ["", ["Stack", "-", !Ref "AWS::StackId", "-", "VPC1"]]
+      VpcId: !ImportValue vpc1id
+      SecurityGroupIngress:
+        -
+          CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          ToPort: 80
+          FromPort: 80
+        -
+          CidrIp: 0.0.0.0/0
+          IpProtocol: icmp
+          ToPort: "-1"
+          FromPort: "-1"
+      SecurityGroupEgress:
+        -
+          CidrIp: 0.0.0.0/0
+          ToPort: "-1"
+          IpProtocol: "-1"
+
+
+  IIQDefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 120
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 60
+      HealthyThresholdCount: 5
+      Matcher:
+        HttpCode: 200
+      Name: iiq-fargate-target-group
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      TargetGroupAttributes:
+        - Key: slow_start.duration_seconds
+          Value: 30
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60
+        - Key: stickiness.enabled
+          Value: true
+        - Key: stickiness.type
+          Value: lb_cookie
+        - Key: stickiness.lb_cookie.duration_seconds
+          Value: 1800
+      UnhealthyThresholdCount: 2
+      VpcId: !ImportValue vpc1id
+
+  IIQDefaultECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: iiq-fargate-cluster
+
+  IIQDefaultECSService:
+    Type: AWS::ECS::Service
+    DependsOn: IIQDefaultALB
+    Properties:
+      Cluster: !Ref IIQDefaultECSCluster
+      DesiredCount: 2
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerPort: 80
+          ContainerName: iiq-fargate-container
+          TargetGroupArn: !Ref IIQDefaultTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref IIQDefaultSecurityGroup
+          Subnets:
+            - !ImportValue subnetvpc1A1
+            - !ImportValue subnetvpc1B1
+      PlatformVersion: LATEST
+      SchedulingStrategy: REPLICA
+      ServiceName: iiq-fargate-service
+      TaskDefinition: !Ref IIQDefaultECSTask

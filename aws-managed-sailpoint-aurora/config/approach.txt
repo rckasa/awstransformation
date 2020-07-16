@@ -1,0 +1,10 @@
+
+managed sailpoint:
+vpc template
+aurora + ecs template
+aurora bastion host -add ec2 key pair, test with user data for s3 copy + buildspec.yml
+next step - optional codepipeline for web redeployments
+
+
+aurorav4 - remove codedeploy project: keep for non sailpoint use case
+aurorav4 - remove codepipeline: rename to aurora-ecs-sailpoint

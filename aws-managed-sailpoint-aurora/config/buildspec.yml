@@ -1,0 +1,11 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      # Upgrade AWS CLI to the latest version
+      - pip install --upgrade awscli
+  build:
+    commands:
+      # Use AWS ECS to perform rolling deployment
+      - aws ecs update-service --force-new-deployment --service $service --cluster $cluster
