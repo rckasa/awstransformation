@@ -102,16 +102,16 @@ Resources:
             Fn::GetAtt: 
               - "S3BucketPublicWriteRemediationLambda"
               - "Arn"
-          Id: "PCI.S3.1"
+          Id: "PCIS31"
   
   S3BucketPublicWriteActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.S3.1
+      Name: PCIS31
       Description: S3 Public Write Event from Security Hub
-      Id: PCI.S3.1
+      Id: PCIS31
 
   S3BucketPublicWriteRemediationLambdaPermission: 
     Type: AWS::Lambda::Permission
@@ -221,16 +221,16 @@ Resources:
             Fn::GetAtt: 
               - "S3BucketPublicReadRemediationLambda"
               - "Arn"
-          Id: "PCI.S3.2"
+          Id: "PCIS32"
   
   S3BucketPublicReadActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.S3.2
+      Name: PCIS32
       Description: S3 Public Write Event from Security Hub
-      Id: PCI.S3.2
+      Id: PCIS32
 
   S3BucketPublicReadRemediationLambdaPermission: 
     Type: AWS::Lambda::Permission
@@ -349,16 +349,16 @@ Resources:
             Fn::GetAtt: 
               - "CloudTrailEncryptionEnabledLambda"
               - "Arn"
-          Id: "PCI.CloudTrail.1"
+          Id: "PCICloudTrail1"
    
   CloudTrailEncryptionEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.CloudTrail.1
+      Name: PCICloudTrail1
       Description: PCI.CloudTrail.1 Event from Security Hub
-      Id: PCI.CloudTrail.1
+      Id: PCICloudTrail1
 
   CloudTrailEncryptionEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -486,16 +486,16 @@ Resources:
             Fn::GetAtt: 
               - "CMKBackingKeyRotationLambda"
               - "Arn"
-          Id: "PCI.KMS.1"
+          Id: "PCIKMS1"
    
   CMKBackingKeyRotationActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: RotateCMK
+      Name: PCIKMS1
       Description: PCI KMS.1 Event from Security Hub
-      Id: PCI.KMS.1
+      Id: PCIKMS1
 
   CMKBackingKeyRotationPermission: 
     Type: AWS::Lambda::Permission
@@ -604,16 +604,16 @@ Resources:
             Fn::GetAtt: 
               - "RemoveUnusedEC2GroupsRemediationLambda"
               - "Arn"
-          Id: "PCI.EC2.3"
+          Id: "PCIEC23"
    
   RemoveUnusedEC2GroupsActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.EC2.3
+      Name: PCIEC23
       Description: PCI.EC2.3 Event from Security Hub
-      Id: PCI.EC2.3
+      Id: PCIEC23
 
   RemoveUnusedEC2GroupsLambdaPermission: 
     Type: AWS::Lambda::Permission
@@ -724,16 +724,16 @@ Resources:
             Fn::GetAtt: 
               - "RestrictEC2GroupsRemediationLambda"
               - "Arn"
-          Id: "PCI.EC2.2"
+          Id: "PCIEC22"
    
   RestrictEC2GroupsActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.EC2.2
+      Name: PCIEC22
       Description: PCI.EC2.2 Event from Security Hub
-      Id: PCI.EC2.2
+      Id: PCIEC22
 
   RestrictEC2GroupsLambdaPermission: 
     Type: AWS::Lambda::Permission
@@ -846,16 +846,16 @@ Resources:
             Fn::GetAtt: 
               - "AutoScalingELBHealthCheckRemediationLambda"
               - "Arn"
-          Id: "PCI.AutoScaling.1"
+          Id: "PCIAutoScaling1"
    
   AutoScalingELBHealthCheckActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.AutoScaling.1
-      Description: PCI.AutoScaling.1 Event from Security Hub
-      Id: PCI.AutoScaling.1
+      Name: PCIAutoScaling1
+      Description: "PCI.AutoScaling.1 Event from Security Hub"
+      Id: PCIAutoScaling1
 
   AutoScalingELBHealthCheckLambdaPermission: 
     Type: AWS::Lambda::Permission
@@ -959,30 +959,30 @@ Resources:
         detail-type: 
           - Security Hub Findings - Custom Action
         resources: 
-          - !GetAtt CodeBuildEnvVariablesActionTarget.Arn
+          - !GetAtt CodeBuildEnvVariablesRuleActionTarget.Arn
       State: "ENABLED"
       Targets: 
         - 
           Arn: 
             Fn::GetAtt: 
-              - "CodeBuildEnvVariablesRemediationLambda"
+              - "CodeBuildEnvVariablesRuleRemediationLambda"
               - "Arn"
-          Id: "PCI.CodeBuild.2"
+          Id: "PCICodeBuild2"
    
   CodeBuildEnvVariablesRuleActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.CodeBuild.2
+      Name: PCICodeBuild2
       Description: PCI.CodeBuild.2 Event from Security Hub
-      Id: PCI.CodeBuild.2
+      Id: PCICodeBuild2
 
   CodeBuildEnvVariablesRuleLambdaPermission: 
     Type: AWS::Lambda::Permission
     Properties: 
       FunctionName: 
-        Ref: "CodeBuildEnvVariablesRemediationLambda"
+        Ref: "CodeBuildEnvVariablesRuleRemediationLambda"
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: 
@@ -1080,24 +1080,24 @@ Resources:
         detail-type: 
           - Security Hub Findings - Custom Action
         resources: 
-          - !GetAtt ReleaseEIPActionTarget.Arn
+          - !GetAtt ReleaseEIPRuleActionTarget.Arn
       State: "ENABLED"
       Targets: 
         - 
           Arn: 
             Fn::GetAtt: 
-              - "ReleaseEIPRemediationLambda"
+              - "ReleaseEIPRuleRemediationLambda"
               - "Arn"
-          Id: "PCI.EC2.4"
+          Id: "PCIEC24"
    
   ReleaseEIPRuleActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt  CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.EC2.4
+      Name: PCIEC24
       Description: PCI.EC2.4 Event from Security Hub
-      Id: PCI.EC2.4
+      Id: PCIEC24
 
   ReleaseEIPRuleLambdaPermission: 
     Type: AWS::Lambda::Permission
@@ -1210,16 +1210,16 @@ Resources:
             Fn::GetAtt: 
               - "CloudTrailCloudWatchLogsLambda"
               - "Arn"
-          Id: "PCI.CloudTrail.4"
+          Id: "PCICloudTrail4"
    
   CloudTrailCloudWatchLogsActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.CloudTrail.4
+      Name: PCICloudTrail4
       Description: PCI.CloudTrail.4 Event from Security Hub
-      Id: PCI.CloudTrail.4
+      Id: PCICloudTrail4
 
   CloudTrailCloudWatchLogsEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -1336,16 +1336,16 @@ Resources:
             Fn::GetAtt: 
               - "CloudTrailEnabledLambda"
               - "Arn"
-          Id: "PCI.CloudTrail.2"
+          Id: "PCICloudTrail2"
    
   CloudTrailEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.CloudTrail.2
+      Name: PCICloudTrail2
       Description: PCI.CloudTrail.2 Event from Security Hub
-      Id: PCI.CloudTrail.2
+      Id: PCICloudTrail2
 
   CloudTrailEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -1455,16 +1455,16 @@ Resources:
             Fn::GetAtt: 
               - "CloudTrailLogFileValidationEnabledLambda"
               - "Arn"
-          Id: "PCI.CloudTrail.3"
+          Id: "PCICloudTrail3"
    
   CloudTrailLogFileValidationEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.CloudTrail.3
+      Name: PCICloudTrail3
       Description: PCI.CloudTrail.3 Event from Security Hub
-      Id: PCI.CloudTrail.3
+      Id: PCICloudTrail3
 
   CloudTrailLogFileValidationEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -1806,16 +1806,16 @@ Resources:
             Fn::GetAtt: 
               - "DeactivateRootIAMAccessKeyEnabledLambda"
               - "Arn"
-          Id: "PCI.IAM.1"
+          Id: "PCIIAM1"
    
   DeactivateRootIAMAccessKeyEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.IAM.1
+      Name: PCIIAM1
       Description: PCI.IAM.1 Events from Security Hub
-      Id: PCI.IAM.1
+      Id: PCIIAM1
 
   DeactivateRootIAMAccessKeyEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -1921,16 +1921,16 @@ Resources:
             Fn::GetAtt: 
               - "IAMUserPolicyDetachEnabledLambda"
               - "Arn"
-          Id: "PCI.IAM.2"
+          Id: "PCIIAM2"
    
   IAMUserPolicyDetachEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.IAM.2
+      Name: PCIIAM2
       Description: PCI.IAM.2 Events from Security Hub
-      Id: PCI.IAM.2
+      Id: PCIIAM2
 
   IAMUserPolicyDetachEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2041,16 +2041,16 @@ Resources:
             Fn::GetAtt: 
               - "IAMFullAdminPolicyDetachEnabledLambda"
               - "Arn"
-          Id: "PCI.IAM.3"
+          Id: "PCIIAM3"
    
   IAMFullAdminPolicyDetachEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI.IAM.3
+      Name: PCIIAM3
       Description: PCI.IAM.3 Events from Security Hub
-      Id: PCI.IAM.3
+      Id: PCIIAM3
 
   IAMFullAdminPolicyDetachEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2159,16 +2159,16 @@ Resources:
             Fn::GetAtt: 
               - "S3BucketServerSideEncryptionEnabledLambda"
               - "Arn"
-          Id: "PCI S3.4"
+          Id: "PCIS34"
    
   S3BucketServerSideEncryptionEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: S3Encryption
+      Name: PCIS34
       Description: PCI S3.4 Event from Security Hub
-      Id: PCI S3.4
+      Id: PCIS34
 
   S3BucketServerSideEncryptionEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2277,16 +2277,16 @@ Resources:
             Fn::GetAtt: 
               - "S3ReplicationEnabledLambda"
               - "Arn"
-          Id: "PCI S3.3"
+          Id: "PCIS33"
    
   S3ReplicationEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI S3.3
-      Description: [PCI S3.3] S3 buckets should have cross-region replication enabled
-      Id: PCI S3.3
+      Name: PCIS33
+      Description: PCI S3.3 S3 buckets should have cross-region replication enabled
+      Id: PCIS33
 
   S3ReplicationEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2304,7 +2304,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: S3ReplicationEnabledLambda
-      Description: [PCI S3.3] S3 buckets should have cross-region replication enabled
+      Description: PCI S3.3 S3 buckets should have cross-region replication enabled
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt S3ReplicationEnabledLambdaRole.Arn
@@ -2400,16 +2400,16 @@ Resources:
             Fn::GetAtt: 
               - "SSMBaselinePatchComplianceEnabledLambda"
               - "Arn"
-          Id: "PCI SSM.1"
+          Id: "PCISSM1"
    
   SSMBaselinePatchComplianceEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI SSM.1
-      Description: [PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation
-      Id: PCI SSM.1
+      Name: PCISSM1
+      Description: "[PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation"
+      Id: PCISSM1
 
   SSMBaselinePatchComplianceEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2427,7 +2427,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: SSMBaselinePatchComplianceEnabledLambda
-      Description: [PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation
+      Description: "[PCI.SSM.1] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation"
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt SSMBaselinePatchComplianceEnabledLambdaRole.Arn
@@ -2518,16 +2518,16 @@ Resources:
             Fn::GetAtt: 
               - "RestrictPublicAccessLambdaEnabledLambda"
               - "Arn"
-          Id: "PCI Lambda.1"
+          Id: "PCILambda1"
    
   RestrictPublicAccessLambdaEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI Lambda.1
-      Description: [PCI.Lambda.1] Lambda functions should prohibit public access
-      Id: PCI Lambda.1
+      Name: PCILambda1
+      Description: "[PCI.Lambda.1] Lambda functions should prohibit public access"
+      Id: PCILambda1
 
   RestrictPublicAccessLambdaEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2545,7 +2545,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: RestrictPublicAccessLambdaEnabledLambda
-      Description: [PCI.Lambda.1] Lambda functions should prohibit public access
+      Description: "[PCI.Lambda.1] Lambda functions should prohibit public access"
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt RestrictPublicAccessLambdaEnabledLambdaRole.Arn
@@ -2618,7 +2618,7 @@ Resources:
 #  [PCI.Lambda.2] Lambda functions should be in a VPC
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 
-  RestrictLambdaVPCEnabledRule: 
+  RestrictLambdaVPCLambdaEnabledRule: 
     Type: AWS::Events::Rule
     Properties: 
       Name: RestrictLambdaVPCLambdaEnabledRule
@@ -2629,7 +2629,7 @@ Resources:
         detail-type: 
           - Security Hub Findings - Custom Action
         resources: 
-          - !GetAtt RestrictLambdaVPCEnabledActionTarget.Arn
+          - !GetAtt RestrictLambdaVPCLambdaEnabledActionTarget.Arn
       State: "ENABLED"
       Targets: 
         - 
@@ -2637,22 +2637,22 @@ Resources:
             Fn::GetAtt: 
               - "RestrictLambdaVPCLambdaEnabledLambda"
               - "Arn"
-          Id: "PCI Lambda.2"
+          Id: "PCILambda2"
    
   RestrictLambdaVPCLambdaEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI Lambda.2
-      Description: [PCI.Lambda.2] Lambda functions should be in a VPC
-      Id: PCI Lambda.2
+      Name: PCILambda2
+      Description: "[PCI.Lambda.2] Lambda functions should be in a VPC"
+      Id: PCILambda2
 
   RestrictLambdaVPCLambdaEnabledPermission: 
     Type: AWS::Lambda::Permission
     Properties: 
       FunctionName: 
-        Ref: "RestrictLambdaVPCEnabledLambda"
+        Ref: "RestrictLambdaVPCLambdaEnabledLambda"
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: 
@@ -2664,7 +2664,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: RestrictLambdaVPCLambdaEnabledLambda
-      Description: [PCI.Lambda.2] Lambda functions should be in a VPC
+      Description: "[PCI.Lambda.2] Lambda functions should be in a VPC"
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt RestrictLambdaVPCLambdaEnabledLambdaRole.Arn
@@ -2672,9 +2672,9 @@ Resources:
       Timeout: 60
       Environment:
         Variables:
-          securitygroupid : !ImportValue securitygroupid
-          subnet1id : !ImportValue subnetvpc1A2
-          subnet2id : !ImportValue subnetvpc1A3
+          securitygroupid : !ImportValue securitygroup1
+          subnet1id : !ImportValue subnet1
+          subnet2id : !ImportValue subnet2
           rolearn: !ImportValue RestrictLambdaVPCRoleArn
       Code:
         ZipFile: |
@@ -2769,16 +2769,16 @@ Resources:
             Fn::GetAtt: 
               - "RDSNonPublicInstanceEnabledLambda"
               - "Arn"
-          Id: "PCI RDS.2"
+          Id: "PCIRDS2"
    
   RDSNonPublicInstanceEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI RDS.2
-      Description: [PCI.RDS.2] RDS instances should prohibit public access
-      Id: PCI RDS.2
+      Name: PCIRDS2
+      Description: "[PCI.RDS.2] RDS instances should prohibit public access"
+      Id: PCIRDS2
 
   RDSNonPublicInstanceEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2796,7 +2796,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: RDSNonPublicInstanceEnabledLambda
-      Description: [PCI.RDS.2] RDS instances should prohibit public access
+      Description: "[PCI.RDS.2] RDS instances should prohibit public access"
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt RDSNonPublicInstanceEnabledLambdaRole.Arn
@@ -2824,7 +2824,7 @@ Resources:
                   print("SSM automation execution error")
                   raise
 
-  RDSNonPublicInstanceLambdaRole:
+  RDSNonPublicInstanceEnabledLambdaRole:
     Type: AWS::IAM::Role
     Properties:
       Policies:
@@ -2881,16 +2881,16 @@ Resources:
             Fn::GetAtt: 
               - "RedshiftNonPublicClusterEnabledLambda"
               - "Arn"
-          Id: "PCI Redshift.1"
+          Id: "PCIRedshift1"
    
   RedshiftNonPublicClusterEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI Redshift.1
-      Description: [PCI.Redshift.1] Amazon Redshift clusters should prohibit public access
-      Id: PCI Redshift.1
+      Name: PCIRedshift1
+      Description: "[PCI.Redshift.1] Amazon Redshift clusters should prohibit public access"
+      Id: PCIRedshift1
 
   RedshiftNonPublicClusterEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -2908,7 +2908,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: RedshiftNonPublicClusterEnabledLambda
-      Description: [PCI.Redshift.1] Amazon Redshift clusters should prohibit public access
+      Description: "[PCI.Redshift.1] Amazon Redshift clusters should prohibit public access"
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt RedshiftNonPublicClusterEnabledLambdaRole.Arn
@@ -2936,7 +2936,7 @@ Resources:
                   print("SSM automation execution error")
                   raise
 
-  RedshiftNonPublicClusterLambdaRole:
+  RedshiftNonPublicClusterEnabledLambdaRole:
     Type: AWS::IAM::Role
     Properties:
       Policies:
@@ -2993,16 +2993,16 @@ Resources:
             Fn::GetAtt: 
               - "RDSPublicNonRestoreSnapshotEnabledLambda"
               - "Arn"
-          Id: "PCI RDS.1"
+          Id: "PCIRDS1"
    
   RDSPublicNonRestoreSnapshotEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI RDS.1
-      Description: [PCI.RDS.1] RDS snapshots should prohibit public access
-      Id: PCI RDS.1
+      Name: PCIRDS1
+      Description: "[PCI.RDS.1] RDS snapshots should prohibit public access"
+      Id: PCIRDS1
 
   RDSPublicNonRestoreSnapshotEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -3020,7 +3020,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: RDSPublicNonRestoreSnapshotEnabledLambda
-      Description: [PCI.RDS.1] RDS snapshots should prohibit public access
+      Description: "[PCI.RDS.1] RDS snapshots should prohibit public access"
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt RDSPublicNonRestoreSnapshotEnabledLambdaRole.Arn
@@ -3105,16 +3105,16 @@ Resources:
             Fn::GetAtt: 
               - "EBSPublicNonRestoreSnapshotEnabledLambda"
               - "Arn"
-          Id: "PCI EC2.1"
+          Id: "PCIEC2.1"
    
   EBSPublicNonRestoreSnapshotEnabledActionTarget:
     Type: Custom::ActionTarget
     Version: 1.0
     Properties:
       ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
-      Name: PCI EC2.1
-      Description: [PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable
-      Id: PCI EC2.1
+      Name: PCIEC21
+      Description: "[PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable"
+      Id: PCIEC21
 
   EBSPublicNonRestoreSnapshotEnabledPermission: 
     Type: AWS::Lambda::Permission
@@ -3132,7 +3132,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: EBSPublicNonRestoreSnapshotEnabledLambda
-      Description: [PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable
+      Description: "[PCI.EC2.1] Amazon EBS snapshots should not be publicly restorable"
       Handler: index.lambda_handler
       MemorySize: 256
       Role: !GetAtt EBSPublicNonRestoreSnapshotEnabledLambdaRole.Arn

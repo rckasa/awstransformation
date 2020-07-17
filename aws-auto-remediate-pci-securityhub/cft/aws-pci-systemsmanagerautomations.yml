@@ -86,17 +86,17 @@ Outputs:
     Description: Subnet 1
     Value: !GetAtt SecureVPCStack.Outputs.subnetvpc1A2
     Export: # added to export
-      Name: subnetvpc1A2
+      Name: subnet1
   OutputsFromNestedStackSubnet2:
     Description: Subnet 2
     Value: !GetAtt SecureVPCStack.Outputs.subnetvpc1A3
     Export: # added to export
-      Name: subnetvpc1A3
+      Name: subnet2
   OutputsFromNestedStackSecurityGroup:
     Description: SecurityGroup
     Value: !GetAtt SecureVPCStack.Outputs.securitygroupid
     Export: # added to export
-      Name: securitygroupid
+      Name: securitygroup1
   FlowLogsCloudWatchLogGroupArn:
     Description: Arn for FlowLogs CloudWatchLogs
     Value:
@@ -163,7 +163,6 @@ Resources:
 #
 # @kanishk.mahajan
 # ---------------------------------------------------------------------------------------------
-
 
 # Bucket Policy for CIS S3 Bucket. Restrict to allow access to only SSL transport.
   CISBucketPolicy:
@@ -355,11 +354,13 @@ Resources:
         Fn::Join:
          - ""
          - - "https://"
-           - "s3-vpctemplate"
+           - "s3-vpctemplates"
            - "-"
            - Ref: AWS::Region
-           - ".s3.amazonaws.com/"
-           - "cft/securevpc.yaml"
+           - ".s3."
+           - Ref: AWS::Region
+           - ".amazonaws.com/"
+           - "aws-securevpcsetup.json"
 
 #FlowLogs CW Log Group
   FlowLogsCloudWatchLogs: 
@@ -453,7 +454,7 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
         - arn:aws:iam::aws:policy/AmazonEC2FullAccess
         - arn:aws:iam::aws:policy/IAMFullAccess
 
@@ -496,21 +497,6 @@ Resources:
               - cloudtrail.amazonaws.com 
           Action:
           - sts:AssumeRole
-
-      Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - ssm.amazonaws.com
-                - events.amazonaws.com
-                - ec2.amazonaws.com
-            Action:
-              - 'sts:AssumeRole'
-      Path: /
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/IAMFullAccess
-        - arn:aws:iam::aws:policy/AdministratorAccess
 
 # S3 Bucket Replication Role
   S3BucketReplicationRole:
@@ -576,7 +562,6 @@ Resources:
                     - ':root'
             Action: 'kms:*'
             Resource: '*'
-
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 # CIS AWS Foundations Benchmark - 2.7 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
@@ -1338,6 +1323,8 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          allocationId:
+            type: String       
         mainSteps:
           - name: ReleaseEIP
             action: 'aws:executeScript'
@@ -1377,6 +1364,8 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          ASGGroupName:
+            type: String 
         mainSteps:
           - name: AutoScalingELBHealthCheck
             action: 'aws:executeScript'
@@ -1416,6 +1405,8 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          projectName:
+            type: String        
         mainSteps:
           - name: CodeBuildUpdateProject
             action: 'aws:executeScript'
@@ -1455,6 +1446,8 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          snapshotId:
+            type: String           
         mainSteps:
           - name: ModifyRDSSnapshot
             action: 'aws:executeScript'
@@ -1494,6 +1487,8 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          clusterId:
+            type: String   
         mainSteps:
           - name: ModifyRedshiftCluster
             action: 'aws:executeScript'
@@ -1533,6 +1528,8 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          dbinstanceId:
+            type: String    
         mainSteps:
           - name: ModifyRDSDBInstance
             action: 'aws:executeScript'
@@ -1572,6 +1569,8 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          snapshotId:
+            type: String    
         mainSteps:
           - name: ModifySnapshot
             action: 'aws:executeScript'
@@ -1611,6 +1610,10 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          accountID:
+            type: String    
+          functionname:
+            type: String    
         mainSteps:
           - name: RestrictLambda
             action: 'aws:executeScript'
@@ -1651,6 +1654,16 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          functionname:
+            type: String    
+          subnet1id:
+            type: String    
+          subnet2id:
+            type: String    
+          securitygroupid:
+            type: String  
+          rolearn:
+            type: String      
         mainSteps:
           - name: RestrictLambdaVPC
             action: 'aws:executeScript'
@@ -1693,6 +1706,12 @@ Resources:
                   - Ref: AWS::AccountId
                   - ':role/'
                   - !Ref AutomationAssumeRole
+          SourceBucketName:
+            type: String    
+          DestinationBucketName:
+            type: String    
+          S3IAMReplicationRole:
+            type: String    
         mainSteps:
           - name: S3Replication
             action: 'aws:executeScript'
@@ -1704,4 +1723,4 @@ Resources:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 SourceBucketName: '{{SourceBucketName}}'
                 DestinationBucketName: '{{DestinationBucketName}}'
-                S3IAMReplicatonRole: '{{S3IAMReplicationRole}}
+                S3IAMReplicatonRole: '{{S3IAMReplicationRole}'
