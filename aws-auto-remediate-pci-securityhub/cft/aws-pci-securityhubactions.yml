@@ -886,8 +886,11 @@ Resources:
           import json
           import os
           def lambda_handler(event, context):
-              ASGGroupName = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsAutoScalingAutoScalingGroup']['AutoScalingGroupName'])
-              Id = str(event['detail']['findings'][0]['Id'])
+              ASGId = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+
+              ASGId_1 = ASGId.split(':')[-1]
+              ASGGroupName = ASGId_1.replace("autoScalingGroupName/","")
+              
               ssm = boto3.client('ssm')
               try:
                   response = ssm.start_automation_execution(
@@ -2321,10 +2324,10 @@ Resources:
           import os
           def lambda_handler(event, context):
               S3BucketArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
-              Id = str(event['detail']['findings'][0]['Id'])
               SourceBucketName = S3BucketArn.replace("arn:aws:s3:::", "")
-              Id = str(event['detail']['findings'][0]['Id'])
-
+              DestinationBucketName = os.environ['DestinationBucketName']
+              S3IAMReplicationRole = os.environ['S3IAMReplicationRole']
+ 
               ssm = boto3.client('ssm')
               try:
                   response = ssm.start_automation_execution(
