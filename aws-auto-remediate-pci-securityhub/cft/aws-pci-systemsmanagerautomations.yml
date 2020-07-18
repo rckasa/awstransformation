@@ -1372,7 +1372,7 @@ Resources:
             inputs:
               Runtime: python3.6
               Handler: script_handler
-              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('autoscaling')\r\n\r\n  ASGGroupName = events['ASGGroupName']\r\n\r\n  response = client.update_auto_scaling_group(\r\n    AutoScalingGroupName= ASGGroupName,\r\n    HealthCheckType='ELB'\r\n  )"
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('autoscaling')\r\n  ASGGroupName = events['ASGGroupName']\r\n\r\n  response = client.update_auto_scaling_group(\r\n    AutoScalingGroupName= ASGGroupName,\r\n    HealthCheckType='ELB',\r\n    HealthCheckGracePeriod=300\r\n  )"
               InputPayload:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 ASGGroupName: '{{ASGGroupName}}'
@@ -1723,4 +1723,4 @@ Resources:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 SourceBucketName: '{{SourceBucketName}}'
                 DestinationBucketName: '{{DestinationBucketName}}'
-                S3IAMReplicatonRole: '{{S3IAMReplicationRole}'
+                S3IAMReplicatonRole: '{{S3IAMReplicationRole}}'
