@@ -179,7 +179,7 @@ Resources:
     Properties:
       ConfigRuleName: RestrictedSSHEnabled
       ResourceType: "AWS::EC2::SecurityGroup"
-      TargetId: "AWS-DisablePublicAccessForSecurityGroup"
+      TargetId: "Custom-RestrictSecurityGroup"
       TargetType: "SSM_DOCUMENT"
       TargetVersion: "1"
       Parameters:
@@ -191,7 +191,7 @@ Resources:
           StaticValue:
             Values:
               - '0.0.0.0/0'
-        GroupId:
+        groupId:
           ResourceValue:
             Value: "RESOURCE_ID"
       ExecutionControls:
@@ -538,6 +538,7 @@ Resources:
       Source:
         Owner: AWS
         SourceIdentifier: VPC_FLOW_LOGS_ENABLED
+      MaximumExecutionFrequency: One_Hour
   VPCFlowLogsEnabledRemediation:
     DependsOn: VPCFlowLogsEnabled
     Type: 'AWS::Config::RemediationConfiguration'
