@@ -1718,9 +1718,9 @@ Resources:
             inputs:
               Runtime: python3.6
               Handler: script_handler
-              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('s3')\r\n\r\n  S3IAMReplicationRole = events['S3IAMReplicationRole']\r\n  SourceBucketName = events['SourceBucketName']\r\n  DestinationBucketName = events['DestinationBucketName']\r\n\r\n  response = client.put_bucket_replication(\r\n    Bucket=SourceBucketName,\r\n    ReplicationConfiguration={\r\n        'Role': S3IAMReplicationRole,\r\n        'Rules': [\r\n            {\r\n                'Destination': {\r\n                    'Bucket': DestinationBucketName,\r\n                    'StorageClass': 'STANDARD',\r\n                },\r\n                'Prefix': '',\r\n                'Status': 'Enabled',\r\n                \"DeleteMarkerReplication\": { \"Status\": \"Disabled\" },\r\n                \"Priority\": 1\r\n            },\r\n        ],\r\n    },\r\n  )"
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('s3')\r\n\r\n  SourceBucketName = events['SourceBucketName']\r\n  DestinationBucketName = events['DestinationBucketName']\r\n  S3IAMReplicationRole = events['S3IAMReplicationRole']\r\n    \r\n  DestinationBucketArn = \"arn:aws:s3:::\" + DestinationBucketName\r\n  \r\n  response = client.put_bucket_replication(\r\n      Bucket=SourceBucketName,\r\n      ReplicationConfiguration={\r\n          'Role': S3IAMReplicationRole,\r\n          'Rules': [\r\n              {\r\n                'Destination': {\r\n                      'Bucket': DestinationBucketArn,\r\n                      'StorageClass': 'STANDARD',\r\n                  },\r\n                  'Prefix': '',\r\n                  'Status': 'Enabled',\r\n               },\r\n         ],\r\n      },\r\n  )"
               InputPayload:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 SourceBucketName: '{{SourceBucketName}}'
                 DestinationBucketName: '{{DestinationBucketName}}'
-                S3IAMReplicatonRole: '{{S3IAMReplicationRole}}'
+                S3IAMReplicationRole: '{{S3IAMReplicationRole}}'
