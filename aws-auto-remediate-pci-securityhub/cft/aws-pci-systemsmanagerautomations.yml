@@ -1447,17 +1447,20 @@ Resources:
                   - ':role/'
                   - !Ref AutomationAssumeRole
           snapshotId:
-            type: String           
+            type: String     
+          snapshotType:
+            type: String      
         mainSteps:
           - name: ModifyRDSSnapshot
             action: 'aws:executeScript'
             inputs:
               Runtime: python3.6
               Handler: script_handler
-              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('rds')\r\n\r\n  snapshotId = events['snapshotId']\r\n  \r\n  response = client.modify_db_snapshot_attribute(\r\n    DBSnapshotIdentifier=snapshotId,\r\n    AttributeName='restore',\r\n    ValuesToRemove=[\r\n        'all',\r\n    ]\r\n  )"
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('rds')\r\n  snapshotId = events['snapshotId']\r\n  snapshotType = events['snapshotType']\r\n\r\n  if snapshotType == \"AwsRdsDBClusterSnapshot\":\r\n      response = client.modify_db_cluster_snapshot_attribute(\r\n        DBClusterSnapshotIdentifier=snapshotId,\r\n        AttributeName='restore',\r\n        ValuesToRemove=[\r\n            'all',\r\n        ]\r\n      )\r\n  else:\r\n      response = client.modify_db_snapshot_attribute(\r\n        DBSnapshotIdentifier=snapshotId,\r\n        AttributeName='restore',\r\n        ValuesToRemove=[\r\n            'all',\r\n        ]\r\n      )\r\n"
               InputPayload:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 snapshotId: '{{snapshotId}}'
+                snapshotType: '{{snapshotType}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 # [PCI.Redshift.1] Amazon Redshift clusters should prohibit public access
@@ -1495,7 +1498,7 @@ Resources:
             inputs:
               Runtime: python3.6
               Handler: script_handler
-              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('redshift')\r\n\r\n  clusterId = events['clusterId']\r\n\r\n  response = client.modify_cluster(\r\n    ClusterIdentifier=clusterId,\r\n    PubliclyAccessible='False'\r\n  )"
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('redshift')\r\n\r\n  clusterId = events['clusterId']\r\n\r\n  response = client.modify_cluster(\r\n    ClusterIdentifier=clusterId,\r\n    PubliclyAccessible= False\r\n  )"
               InputPayload:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 clusterId: '{{clusterId}}'
@@ -1536,7 +1539,7 @@ Resources:
             inputs:
               Runtime: python3.6
               Handler: script_handler
-              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('rds')\r\n\r\n  dbinstanceId = events['dbinstanceId']\r\n\r\n  response = client.modify_db_instance(\r\n    ApplyImmediately=True,\r\n    DBInstanceIdentifier=dbinstanceId,\r\n    PubliclyAccessible='False'\r\n  )\r\n"
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('rds')\r\n  dbinstanceId = events['dbinstanceId']\r\n\r\n  response = client.modify_db_instance(\r\n    ApplyImmediately=True,\r\n    DBInstanceIdentifier=dbinstanceId,\r\n    PubliclyAccessible= False\r\n  )"
               InputPayload:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 dbinstanceId: '{{dbinstanceId}}'

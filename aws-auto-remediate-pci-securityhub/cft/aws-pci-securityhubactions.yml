@@ -1131,11 +1131,11 @@ Resources:
           import json
           import os
           def lambda_handler(event, context):
-              networkinterfaceId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2NetworkInterface']['NetworkInterfaceId'])
-              Id = str(event['detail']['findings'][0]['Id'])
-              ec2 = boto3.resource('ec2')
-              network_interface = ec2.NetworkInterface('networkinterfaceId')
-              AllocationId = network_interface.association_attribute['AllocationId']
+
+              AllocationArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              AllocationArn_1 = AllocationArn.split(':')[-1]
+              AllocationId = AllocationArn_1.replace("eip-allocation/","")
+
               ssm = boto3.client('ssm')
               try:
                   response = ssm.start_automation_execution(
@@ -2443,7 +2443,6 @@ Resources:
           import os
           def lambda_handler(event, context):
               InstanceId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2Instance']['ImageId'])
-              Id = str(event['detail']['findings'][0]['Id'])
               ssm = boto3.client('ssm')
               try:
                 
@@ -2811,8 +2810,9 @@ Resources:
           import json
           import os
           def lambda_handler(event, context):
-              dbinstanceId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsRdsDbInstance']['DBInstanceIdentifier'])
-              Id = str(event['detail']['findings'][0]['Id'])
+              dbinstanceArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              dbinstanceId = dbinstanceArn.split(':')[-1] 
+
               ssm = boto3.client('ssm')
               try:
                   response = ssm.start_automation_execution(
@@ -2876,7 +2876,7 @@ Resources:
         detail-type: 
           - Security Hub Findings - Custom Action
         resources: 
-          - !GetAtt RDSNonPublicInstanceEnabledActionTarget.Arn
+          - !GetAtt RedshiftNonPublicClusterEnabledActionTarget.Arn
       State: "ENABLED"
       Targets: 
         - 
@@ -2923,8 +2923,8 @@ Resources:
           import json
           import os
           def lambda_handler(event, context):
-              clusterId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsRdsDbInstance']['DBInstanceIdentifier'])
-              Id = str(event['detail']['findings'][0]['Id'])
+              clusterArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              clusterId = clusterArn.split(':')[-1]
               ssm = boto3.client('ssm')
               try:
                   response = ssm.start_automation_execution(
@@ -3035,15 +3035,18 @@ Resources:
           import json
           import os
           def lambda_handler(event, context):
-              snapshotId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsRdsDbInstance']['SnapshotId'])
-              Id = str(event['detail']['findings'][0]['Id'])
+              snapshotArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              snapshotType = str(event['detail']['findings'][0]['Resources'][0]['Type'])
+              print(snapshotType)
+              snapshotId = snapshotArn.split(':')[-1]
               ssm = boto3.client('ssm')
               try:
                   response = ssm.start_automation_execution(
                       DocumentName='Custom-ModifyRDSSnapshot',
                       DocumentVersion='1', # default
                       Parameters={
-                          'snapshotId': [ snapshotId ]
+                          'snapshotId': [snapshotId]
+                          'snapshotType': [snapshotType]
                       }
                   )
               except Exception as e:
