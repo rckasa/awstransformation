@@ -7,9 +7,6 @@ AWS provides built-in automated detection of PCI violations via 2 distinct mecha
 
 These templates provide real time and automated remediations for each of the PCI-DSS benchmarks by providing a fully automated integration of AWS Security Hub Custom Actions and AWS Systems Manager automation documents.
 
-This is the second of the 2 approaches---the previous templates were built to leverage AWS Config for both detection and automatic, continuous remediation. These set of templates provide an incident response dashboard mechanism  (i.e. not continuous/self healing) that natively uses AWS Security Hub for both detection and automated remediation. 
-
-Templates 1 and 3 are identical in both approaches. These templates provision AWS Systems Manager Automation Documents, AWS Cloud Watch Log Metric Filters and all the required pre-reqs. Template 2 differs. For the AWS Config based approach, Template 2 leverages the same SSM documents but within AWS Config Remediation Rules while for this AWS Security Hub based approach, Template 2 leverages the same SSM documents but within AWS Security Hub Custom Actions.
 
 ## How it Works
 
@@ -32,8 +29,7 @@ Templates 1 and 3 are identical in both approaches. These templates provision AW
 * Provisions AWS CloudWatch Evemts and AWS Security Hub Custom Actions. No input parameters. Simply install on the CloudFormation console (or CLI). Installs in approx 3-4 mins.
 * Leverages the output from the previous template specifically the AWS Systems Manager Automation documents
 
-3. **Template 3 of 3:** aws-pci-cloudwatchlogmetricfilters.yml
-* Provisions CloudWatch Log Metric Filters and corresponding CloudWatch Alarms for each of the required CIS Benchmarks. Installs independently of templates 1 and 2.  Provide email as input for SNS notification. Installs in approx 2-3 mins. 
+
 
 
 ## Author

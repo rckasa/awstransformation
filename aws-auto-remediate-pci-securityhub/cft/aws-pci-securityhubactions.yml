@@ -1010,7 +1010,11 @@ Resources:
           import json
           import os
           def lambda_handler(event, context):
-              codebuildproject = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsCodeBuildProject']['Name'])
+    
+              codebuildprojectArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              codebuildprojectArn_1 = codebuildprojectArn.split(':')[-1] 
+              codebuildproject = codebuildprojectArn_1.replace("project/","")
+
               Id = str(event['detail']['findings'][0]['Id'])
               ssm = boto3.client('ssm')
               try:
@@ -2442,7 +2446,7 @@ Resources:
           import json
           import os
           def lambda_handler(event, context):
-              InstanceId = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsEc2Instance']['ImageId'])
+              InstanceId = str(event['detail']['findings'][0]['ProductFields']['attributes:5/value'])
               ssm = boto3.client('ssm')
               try:
                 
