@@ -3037,7 +3037,6 @@ Resources:
           def lambda_handler(event, context):
               snapshotArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
               snapshotType = str(event['detail']['findings'][0]['Resources'][0]['Type'])
-              print(snapshotType)
               snapshotId = snapshotArn.split(':')[-1]
               ssm = boto3.client('ssm')
               try:
@@ -3045,7 +3044,7 @@ Resources:
                       DocumentName='Custom-ModifyRDSSnapshot',
                       DocumentVersion='1', # default
                       Parameters={
-                          'snapshotId': [snapshotId]
+                          'snapshotId': [snapshotId],
                           'snapshotType': [snapshotType]
                       }
                   )
