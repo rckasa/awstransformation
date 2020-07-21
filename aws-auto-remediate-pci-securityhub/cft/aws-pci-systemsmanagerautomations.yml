@@ -1413,7 +1413,7 @@ Resources:
             inputs:
               Runtime: python3.6
               Handler: script_handler
-              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('codebuild')\r\n  projectName = events['projectName']\r\n  \r\n  response = client.batch_get_projects(\r\n    names='projectName'\r\n  )\r\n\r\n  response.projects[0].environment['environmentVariables'].clear()\r\n  response = client.update_project(name=projectName, environment=response.projects[0].environment)"
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  client = boto3.client('codebuild')\r\n  projectName = events['projectName']\r\n\r\n  response = client.batch_get_projects(\r\n      names=[\r\n       projectName\r\n      ]\r\n  )\r\n    \r\n  projectenv = response['projects'][0]['environment']\r\n  projectenv1_type = \"projectenv type: \" + projectenv['type']\r\n  projectenvvars = projectenv['environmentVariables']\r\n    \r\n  for i in range(len(projectenvvars)):\r\n      if  projectenvvars[i]['name'] == 'AWS_ACCESS_KEY_ID':\r\n          del (projectenvvars[i])\r\n          break\r\n    \r\n  for i in range(len(projectenvvars)):\r\n      if  projectenvvars[i]['name'] == 'AWS_SECRET_ACCESS_KEY':\r\n          del (projectenvvars[i])\r\n          break\r\n        \r\n  response['projects'][0]['environment']['environmentVariables'] = projectenvvars\r\n  response1 = client.update_project(name=projectName, environment=response['projects'][0]['environment'])\r\n"
               InputPayload:
                 AutomationAssumeRole: '{{AutomationAssumeRole}}'
                 projectName: '{{projectName}}'
