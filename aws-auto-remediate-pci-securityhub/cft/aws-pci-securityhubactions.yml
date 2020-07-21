@@ -1,6 +1,6 @@
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-#  CloudFormation Template 2 of 3 - Real Time Automated Remediation for PCI DSS Findings based on Security Hub 
+#  CloudFormation Template 2 of 2 - Real Time Automated Remediation for PCI DSS Findings based on Security Hub 
 #  
 #  Pre-req : Uses the AWS SSM Automation CloudFormation Template. 
 #  This template integrates AWS Security Hub custom actions with Custom AWS SSM Automation Remediation Documents
@@ -1328,7 +1328,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties: 
       Name: CloudTrailEnabledRule
-      Description: "CIS AWS Foundations Benchmark - 2.1. – Ensure CloudTrail is enabled in all regions"
+      Description: "PCI.CloudTrail.2 – Ensure CloudTrail is enabled in all regions"
       EventPattern: 
         source: 
           - aws.securityhub
@@ -1447,7 +1447,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties: 
       Name: CloudTrailLogFileValidationEnabledRule
-      Description: "CIS AWS Foundations Benchmark - 2.2 – Ensure CloudTrail log file validation is enabled"
+      Description: "PCI.CloudTrail.3 – Ensure CloudTrail log file validation is enabled"
       EventPattern: 
         source: 
           - aws.securityhub

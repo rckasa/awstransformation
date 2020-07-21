@@ -1,6 +1,6 @@
 
 # -------------------------------------------------------------------------------------------------
-# CloudFormation Template 1 of 3 - Real Time Automated Remediation for PCI DSS Findings based on Security Hub
+# CloudFormation Template 1 of 2 - Real Time Automated Remediation for PCI DSS Findings based on Security Hub
 #
 # Provisions Systems Manager Automation Documents for CIS AWS Foundations Benchmark 
 # Each document is invoked from a AWS Security Hub Custom Action 
@@ -159,12 +159,12 @@ Resources:
 # ------------------------------------------------------------------------------------------
 # CIS AWS Foundations Benchmark - Pre-requesites
 #
-# Provisions all pre-req AWS Services for CIS benchmarks
+# Provisions all pre-req AWS Services for PCI-DSS remediations
 #
 # @kanishk.mahajan
 # ---------------------------------------------------------------------------------------------
 
-# Bucket Policy for CIS S3 Bucket. Restrict to allow access to only SSL transport.
+# Bucket Policy for CloudTrail S3 Bucket. Restrict to allow access to only SSL transport.
   CISBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -260,7 +260,7 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
 
-# Bucket Policy for CIS S3 Bucket. Restrict to allow access to only SSL transport.
+# Bucket Policy for S3 Bucket used for Bucket Logging. Restrict to allow access to only SSL transport.
   S3LoggingBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -564,7 +564,7 @@ Resources:
             Resource: '*'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# CIS AWS Foundations Benchmark - 2.7 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
+# [PCI.CloudTrail.1] CloudTrail logs should be encrypted at rest using AWS KMS CMKs
 #
 # SSM Automation Document that leverages  context passed from AWS Security Hub action 
 # Similar pattern is repeated for each automation document
@@ -642,7 +642,7 @@ Resources:
                 KMSKeyArn: '{{KMSKeyArn}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# CIS AWS Foundations Benchmark - 2.8 – Ensure rotation for customer-created CMKs is enabled
+# [PCI.KMS.1] Customer master key (CMK) rotation should be enabled
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   CustomCMKBackingKeyRotationCF:
     Type: AWS::SSM::Document
@@ -682,7 +682,7 @@ Resources:
                 KMSKeyArn: '{{KMSKeyArn}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# CIS AWS Foundations Benchmark - 2.4 – Ensure CloudTrail trails are integrated with Amazon CloudWatch Logs
+# [PCI.CloudTrail.4] CloudTrail trails should be integrated with CloudWatch Logs
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   CustomCloudTrailUpdateCF:
     Type: AWS::SSM::Document
@@ -862,7 +862,7 @@ Resources:
 
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# CIS AWS Foundations Benchmark - 1.12 – Deactivate Root Account IAM Access Key
+# [PCI.IAM.1] IAM root user access key should not exist
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   CustomDeactivateRootIAMAccessKeyCF:
     Type: AWS::SSM::Document
@@ -916,7 +916,7 @@ Resources:
                 username: '{{username}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# CIS AWS Foundations Benchmark - 1.16 – Ensure IAM policies are attached only to groups or roles
+# [PCI.IAM.2] IAM users should not have IAM policies attached
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   CustomIAMUserPolicyDetachCF:
     Type: AWS::SSM::Document
@@ -1021,7 +1021,7 @@ Resources:
 
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# CIS AWS Foundations Benchmark - 1.22 – Ensure IAM policies that allow full "*:*" administrative privileges are not created
+# [PCI.IAM.3] IAM policies should not allow full "*" administrative privileges
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   CustomIAMFullAdminPolicyDetachCF:
     Type: AWS::SSM::Document
@@ -1086,7 +1086,7 @@ Resources:
                 username: '{{username}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
-# CIS AWS Foundations Benchmark - 2.2. – Ensure CloudTrail log file validation is enabled
+# [PCI.CloudTrail.3] CloudTrail log file validation should be enabled
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   CustomLogFileValidationCF:
     Type: AWS::SSM::Document
