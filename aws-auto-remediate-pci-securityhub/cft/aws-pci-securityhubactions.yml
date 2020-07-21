@@ -9,7 +9,36 @@
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+
+Parameters:
+  EmailAddress:
+    Description: Email Address for notifications for PCI.CW.1
+    Type: String
+    Default:  admin@example.com
+
 Resources:
+
+# SNS topic for CloudWatch Alarm Notifications
+  AlarmNotificationTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: AlarmNotificationTopic
+      TopicName: AlarmNotificationTopic
+
+# Email Subscription for SNS topic
+  AlarmEmailSubscription:
+    Type: 'AWS::SNS::Subscription'
+    Properties:
+      Protocol: email
+      Endpoint: !Ref EmailAddress
+      TopicArn: !Ref AlarmNotificationTopic
+
+# CloudTrail CloudWatch Log Group
+  CloudTrailLogGroup: 
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub DefaultLogGroup-PCI-${AWS::Region}
+      RetentionInDays: 1827
 
   CreateSecurityHubCustomActionTargetLambda:
     Type: AWS::Lambda::Function
@@ -48,6 +77,7 @@ Resources:
               except Exception as e:
                   print(e)
                   cfnresponse.send(event, context, cfnresponse.FAILED, {})
+  
   CreateSecurityHubCustomActionTargetLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -316,6 +346,75 @@ Resources:
           Principal: { Service: lambda.amazonaws.com }
           Action:
           - sts:AssumeRole
+
+
+# ------------------------------------------------------------------------------------------------------------------------------------
+# [PCI.CW.1] A log metric filter and alarm should exist for usage of the "root" user
+# ------------------------------------------------------------------------------------------------------------------------------------
+  RootAccountLoginsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn:
+    - NoMfaConsoleLoginsAlarm
+    Properties:
+      AlarmName: PCI-Root Activity
+      AlarmDescription: Alarm if a 'root' user uses the account
+      MetricName: RootUserEventCount
+      Namespace: LogMetrics
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+  RootAccountLoginsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroup
+      FilterPattern: |-
+        {
+          $.userIdentity.type = "Root" &&
+          $.userIdentity.invokedBy NOT EXISTS &&
+          $.eventType != "AwsServiceEvent"
+        }
+      MetricTransformations:
+      - MetricValue: '1'
+        MetricNamespace: LogMetrics
+        MetricName: RootUserEventCount
+
+
+# ------------------------------------------------------------------------------------------------------------------------------------
+# [PCI.CW.1] A log metric filter and alarm should exist for usage of the "root" user - alarms if management console login without MFA
+# ------------------------------------------------------------------------------------------------------------------------------------
+  NoMfaConsoleLoginsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: CIS-Console Signin Without MFA
+      AlarmDescription: Alarm if there is a Management Console sign-in without MFA
+      MetricName: ConsoleSigninWithoutMFA
+      Namespace: LogMetrics
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+  NoMfaConsoleLoginsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroup
+      FilterPattern: |-
+        {
+          ($.eventName = "ConsoleLogin") &&
+          ($.additionalEventData.MFAUsed != "Yes")
+        }
+      MetricTransformations:
+      - MetricValue: '1'
+        MetricNamespace: LogMetrics
+        MetricName: ConsoleSigninWithoutMFA
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 # PCI.CloudTrail.1 – Ensure CloudTrail logs are encrypted at rest using AWS KMS CMKs
