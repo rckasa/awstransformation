@@ -3,9 +3,9 @@
 
 # Automated, Real Time Remediations for Foundational Security Benchmarks using AWS Security Hub
 
-AWS provides built-in automated detection of PCI violations via 2 distinct mechanisms - AWS Config Rules or via AWS Security Hub ( that internally leverages Config). However, there's no built-in support for remediations. 
+AWS provides built-in automated detection of Foundational Security violations via 2 distinct mechanisms - AWS Config Rules or via AWS Security Hub ( that internally leverages Config). However, there's no built-in support for remediations. 
 
-These templates provide real time and automated remediations for each of the PCI-DSS benchmarks by providing a fully automated integration of AWS Security Hub Custom Actions and AWS Systems Manager automation documents.
+These templates provide real time and automated remediations for each of the Foundational Security benchmarks by providing a fully automated integration of AWS Security Hub Custom Actions and AWS Systems Manager automation documents.
 
 
 ## How it Works
@@ -34,5 +34,5 @@ These templates provide real time and automated remediations for each of the PCI
 
 ## Author
 
-Kanishk Mahajan; kanishk.mahajan@gmail.com
+Kanishk Mahajan; kmmahaj@amazon.com
 
