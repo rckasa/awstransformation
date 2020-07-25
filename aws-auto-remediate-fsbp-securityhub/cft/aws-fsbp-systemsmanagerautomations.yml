@@ -15,52 +15,42 @@ Outputs:
     Description: Arn for AutomationAssumeRole
     Value: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}'
     Export: # added to export
-      Name: FBSP-AutomationAssumeRoleArn
-  S3BucketReplicationRoleArn:
-    Description: Arn for S3ReplicationRole
-    Value: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${S3BucketReplicationRole}'
-    Export: # added to export
-      Name: FBSP-S3BucketReplicationRoleArn
+      Name: FSBP-AutomationAssumeRoleArn
   CloudTrailLogGroupArn:
     Description: Arn for CloudTrail CloudWatch Logs
     Value: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${CloudTrailLogGroup}:*"
     Export: # added to export
-      Name: FBSP-CloudTrailLogGroupArn
+      Name: FSBP-CloudTrailLogGroupArn
   S3LoggingBucketFullName:
     Description: S3 Logging Bucket  - CIS 2.6
     Value: !Ref S3LoggingBucket
     Export: # added to export
-      Name: FBSP-S3LoggingBucketFullName
-  S3ReplicationBucketFullName:
-    Description: S3 Replication Bucket  - PCI S3.3
-    Value: !Ref S3ReplicationBucket
-    Export: # added to export
-      Name: FBSP-S3ReplicationBucketFullName
+      Name: FSBP-S3LoggingBucketFullName
   CISS3CloudTrailBucket:
     Description: CIS S3 CloudTrail Bucket
     Value: !Ref CISS3CloudTrailBucket
     Export: # added to export
-      Name: FBSP-CISS3CloudTrailBucket
+      Name: FSBP-CISS3CloudTrailBucket
   CloudTrailLogGroup:
     Description: CIS CloudTrail CloudWatch Log Group
     Value: !Ref CloudTrailLogGroup
     Export: # added to export
-      Name: FBSP-CloudTrailLogGroup
+      Name: FSBP-CloudTrailLogGroup
   CISCloudTrail:
     Description: CIS CloudTrail
     Value: 'remediation-cis-trail'
     Export: # added to export
-      Name: FBSP-CISCloudTrail
+      Name: FSBP-CISCloudTrail
   CloudWatchRoleArn:
     Description: Arn for CloudTrail CloudWatch IAM Role
     Value: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${CloudWatchRole}"
     Export: # added to export
-      Name: FBSP-CloudWatchRoleArn
+      Name: FSBP-CloudWatchRoleArn
   KMSKeyArn:
     Description: Arn for KMS CMK
     Value: !Sub "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${KmsKeyId}"
     Export: # added to export
-      Name: FBSP-KMSKeyArn
+      Name: FSBP-KMSKeyArn
 
 Resources:
 
@@ -114,7 +104,7 @@ Resources:
   CISS3CloudTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "fbsp-s3-cis-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub "fsbp-s3-cis-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -143,7 +133,7 @@ Resources:
   CISS3CloudTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "fbsp-s3-cis-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub "fsbp-s3-cis-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -200,7 +190,7 @@ Resources:
   S3LoggingBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "fbsp-s3-logging-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub "fsbp-s3-logging-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -225,47 +215,18 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
 
-# S3 Bucket for Bucket Replication
-  S3ReplicationBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub "fbsp-s3-replication-${AWS::AccountId}-${AWS::Region}"
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      AccessControl: BucketOwnerFullControl
-      LifecycleConfiguration:
-        Rules:
-          -
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 3
-            NoncurrentVersionExpirationInDays: 3
-            Status: Enabled
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      Tags:
-        -
-          Key: Description
-          Value: S3 Destination Bucket for Replication
-      VersioningConfiguration:
-        Status: Enabled
-
 #CloudTrail CW Log Group
   CloudTrailLogGroup: 
     Type: AWS::Logs::LogGroup
     Properties: 
-      LogGroupName: !Sub FBSP-DefaultLogGroup-${AWS::Region}
+      LogGroupName: !Sub FSBP-DefaultLogGroup-${AWS::Region}
       RetentionInDays: 1827
 
 # SSM Automation Role
   AutomationAssumeRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub fbsp-automationassumerole-${AWS::Region}
+      RoleName: !Sub fsbp-automationassumerole-${AWS::Region}
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -279,14 +240,14 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       ManagedPolicyArns:
-        - arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
 
 
 # Cloud Watch Role
   CloudWatchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub FBSP-CloudTrail_CloudWatchLogs_Role-${AWS::Region}
+      RoleName: !Sub FSBP-CloudTrail_CloudWatchLogs_Role-${AWS::Region}
       Policies:
       - PolicyName: CloudWatchLogsRolePolicy
         PolicyDocument:
@@ -305,7 +266,6 @@ Resources:
             - logs:DescribeLogGroups
             - logs:DescribeLogStreams
             - iam:PassRole
-            - ec2:*
             Resource: '*'
           - Effect: Allow
             Action:
@@ -319,49 +279,6 @@ Resources:
           Principal: 
             Service:
               - cloudtrail.amazonaws.com 
-          Action:
-          - sts:AssumeRole
-
-# S3 Bucket Replication Role
-  S3BucketReplicationRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub FBSP-S3_Replication_Role-${AWS::Region}
-      Policies:
-      - PolicyName: S3BucketReplicationPolicy
-        PolicyDocument:
-          Version: 2012-10-17
-          Statement:
-          - Effect: Allow
-            Action:
-            - s3:GetReplicationConfiguration
-            - s3:ListBucket
-            Resource:
-              - !Sub arn:aws:s3:::*
-              - !Sub arn:aws:s3:::*
-          - Effect: Allow
-            Action:
-            - s3:GetObjectVersion
-            - s3:GetObjectVersionTagging
-            - s3:GetObjectVersionAcl
-            Resource:
-              - !Sub arn:aws:s3:::*
-              - !Sub arn:aws:s3:::*
-          - Effect: Allow
-            Action:
-            - s3:ReplicateObject
-            - s3:ReplicateDelete
-            - s3:ReplicateTags
-            Resource: 
-              - !Sub arn:aws:s3:::*
-              - !Sub arn:aws:s3:::*
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-        - Effect: Allow
-          Principal: 
-            Service:
-              - s3.amazonaws.com 
           Action:
           - sts:AssumeRole
 
@@ -394,7 +311,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-CloudTrailEncryptionCF
+      Name: Custom-FSBP-CloudTrailEncryptionCF
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -429,13 +346,45 @@ Resources:
 
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
+# [EC2.2] The VPC default security group should not allow inbound and outbound traffic
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  RestrictSecurityGroupPublicAccess:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-FSBP-RestrictSecurityGroup
+      Content:
+        schemaVersion: '0.3'
+        assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
+        parameters:
+          groupId:
+            type: String
+          IpAddressToBlock:
+            type: String
+            default: '0.0.0.0/0'
+          AutomationAssumeRole:
+            type: String
+            default: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
+        mainSteps:
+          - name: RestrictSecurityGroup
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: restrict_sg
+              Script: "def restrict_sg(events, context):\r\n  import boto3\r\n  import json\r\n  import os\r\n  ec2 = boto3.resource('ec2')\r\n  defaultSecGroupId = events['groupId']\r\n  try:\r\n      defaultSG = ec2.SecurityGroup(defaultSecGroupId)\r\n      defaultIngress = defaultSG.ip_permissions\r\n      defaultEgress = defaultSG.ip_permissions_egress\r\n      revokeIngress = defaultSG.revoke_ingress(IpPermissions=defaultIngress)\r\n      revokeEgress = defaultSG.revoke_egress(IpPermissions=defaultEgress)\r\n  except Exception as e:\r\n      print(e)"
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                groupId: '{{groupId}}'
+                IpAddressToBlock: '{{IpAddressToBlock}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
 # [IAM.7] Password policies for IAM users should have strong configurations
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   CustomIAMPasswordUpdateCF:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-IAMPasswordUpdateCF
+      Name: Custom-FSBP-IAMPasswordUpdateCF
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -474,7 +423,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-IAMKeyRotate90DaysCF
+      Name: Custom-FSBP-IAMKeyRotate90DaysCF
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -528,7 +477,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-DeactivateRootIAMAccessKeyCF
+      Name: Custom-FSBP-DeactivateRootIAMAccessKeyCF
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -570,7 +519,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-IAMUserPolicyDetachCF
+      Name: Custom-FSBP-IAMUserPolicyDetachCF
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -662,7 +611,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-IAMFullAdminPolicyDetachCF
+      Name: Custom-FSBP-IAMFullAdminPolicyDetachCF
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -715,7 +664,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-RestrictSecurityGroup
+      Name: Custom-FSBP-RestrictSecurityGroup
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -747,7 +696,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-CodeBuildUpdateProject
+      Name: Custom-FSBP-CodeBuildUpdateProject
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -776,7 +725,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-ModifyRDSSnapshot
+      Name: Custom-FSBP-ModifyRDSSnapshot
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -808,7 +757,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-ModifyRDSDBInstance
+      Name: Custom-FSBP-ModifyRDSDBInstance
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -837,7 +786,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-ModifySnapshot
+      Name: Custom-FSBP-ModifySnapshot
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
@@ -866,7 +815,7 @@ Resources:
     Type: AWS::SSM::Document
     Properties:
       DocumentType: Automation
-      Name: Custom-FBSP-RestrictPublicLambda
+      Name: Custom-FSBP-RestrictPublicLambda
       Content:
         schemaVersion: '0.3'
         assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
