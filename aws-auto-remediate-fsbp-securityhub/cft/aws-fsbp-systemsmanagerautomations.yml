@@ -36,6 +36,11 @@ Outputs:
     Value: !Ref CloudTrailLogGroup
     Export: # added to export
       Name: FSBP-CloudTrailLogGroup
+  SSMInstanceProfileRoleArn:
+    Description: Arn for SSMInstanceProfileRole
+    Value: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${SSMInstanceProfileRole}'
+    Export: # added to export
+      Name: FSBP-SSMInstanceProfileRoleArn
   CISCloudTrail:
     Description: CIS CloudTrail
     Value: 'remediation-cis-trail'
@@ -55,9 +60,9 @@ Outputs:
 Resources:
 
 # ------------------------------------------------------------------------------------------
-# FBSP AWS Foundations Benchmark - Pre-requesites
+# FSBP AWS Foundations Benchmark - Pre-requesites
 #
-# Provisions all pre-req AWS Services for PCI-DSS remediations
+# Provisions all pre-req AWS Services for FSBP remediations
 #
 # @kanishk.mahajan
 # ---------------------------------------------------------------------------------------------
@@ -242,6 +247,24 @@ Resources:
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
 
+
+# SSM Instance Profile Role
+  SSMInstanceProfileRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub fsbp-ssminstanceprofilerole-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
 
 # Cloud Watch Role
   CloudWatchRole:

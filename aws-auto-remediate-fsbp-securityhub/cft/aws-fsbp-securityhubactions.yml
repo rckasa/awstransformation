@@ -1634,6 +1634,149 @@ Resources:
           Action:
           - sts:AssumeRole
 
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [SSM.1] EC2 instances should be managed by AWS Systems Manager
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  SSMQuickSetupEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: FSBP-SSMQuickSetupEnabledRule
+      Description: "[SSM.1] EC2 instances should be managed by AWS Systems Manager"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt SSMQuickSetupEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "SSMQuickSetupEnabledLambda"
+              - "Arn"
+          Id: "SSM1"
+   
+  SSMQuickSetupEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: SSM1
+      Description: "SSM.1 EC2 instances should be managed by AWS Systems Manager"
+      Id: SSM1
+
+  SSMQuickSetupEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "SSMBaselinePatchComplianceEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "SSMQuickSetupEnabledRule"
+          - "Arn"
+
+  SSMQuickSetupEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: FSBP-SSMQuickSetupEnabledLambda
+      Description: "[SSM.1] EC2 instances should be managed by AWS Systems Manager "
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt SSMQuickSetupEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Environment:
+        Variables:
+          SSMInstanceProfileRoleArn : !ImportValue FSBP-SSMInstanceProfileRoleArn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              InstanceId = str(event['detail']['findings'][0]['ProductFields']['attributes:5/value'])
+              ssminstanceprofilerole_arn = os.environ['SSMInstanceProfileRoleArn']
+              roleArn_1 = ssminstanceprofilerole_arn.split(':')[-1] 
+              rolename = roleArn_1.replace("role/","")
+              iam = boto3.client('iam')
+              ssm = boto3.client('ssm')
+              ec2 = boto3.client('ec2')
+              try:
+                 
+                 response_iam_1 = iam.create_instance_profile(
+                      InstanceProfileName='EC2ManagedInstanceProfile'
+                 )
+
+                 response_iam_2 = iam.add_role_to_instance_profile(
+                      InstanceProfileName='EC2ManagedInstanceProfile',
+                      RoleName=rolename
+                 )
+                 
+                 response_ec2 = ec2.associate_iam_instance_profile(
+                     IamInstanceProfile={
+                         'Name': 'EC2ManagedInstanceProfile'
+                     },
+                     InstanceId=InstanceId
+                 )
+
+                 response = ssm.send_command(
+                      InstanceIds=[ InstanceId ],
+                      DocumentName='AWS-RunPatchBaseline',
+                      DocumentVersion='1',
+                      TimeoutSeconds=360,
+                      Comment='RunPatchBaseline Invoked in response to Security Hub finding',
+                      Parameters={ 'Operation': [ 'Install' ] },
+                      CloudWatchOutputConfig={ 'CloudWatchOutputEnabled': True }
+                 )
+
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  SSMQuickSetupEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: FSBP-SSMQuickSetupEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - ssm:*
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - ec2:*
+            - iam:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 #  [SSM.2] Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
