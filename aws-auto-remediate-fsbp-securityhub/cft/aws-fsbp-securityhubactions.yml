@@ -2018,6 +2018,117 @@ Resources:
 
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [GuardDuty.1] GuardDuty should be enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  GuardDutyEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: FSBP-GuardDutyEnabledRule
+      Description: "[GuardDuty.1] GuardDuty should be enabled"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt GuardDutyEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "GuardDutyEnabledLambda"
+              - "Arn"
+          Id: "GuardDuty1"
+   
+  GuardDutyEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: GuardDuty1
+      Description: "[GuardDuty.1] GuardDuty should be enabled"
+      Id: GuardDuty1
+
+  GuardDutyEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "GuardDutyEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "GuardDutyEnabledRule"
+          - "Arn"
+
+  GuardDutyEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: FSBP-GuardDutyEnabledLambda
+      Description: "GuardDuty.1 GuardDuty should be enabled"
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt GuardDutyEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              findingpublishingfrequency='FIFTEEN_MINUTES'
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-FSBP-EnableGuardDuty',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'findingpublishingfrequency': [ findingpublishingfrequency ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  GuardDutyEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: FSBP-GuardDutyEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
 #  [Lambda.2] Lambda functions should use latest runtimes
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 
