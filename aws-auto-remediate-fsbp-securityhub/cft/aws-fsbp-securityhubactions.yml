@@ -2018,6 +2018,119 @@ Resources:
 
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [Lambda.2] Lambda functions should use latest runtimes
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  LatestRuntimeLambdaEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: FSBP-LatestRuntimeLambdaEnabledRule
+      Description: "[Lambda.2] Lambda functions should use latest runtimes"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt LatestRuntimeLambdaEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "LatestRuntimeLambdaEnabledLambda"
+              - "Arn"
+          Id: "Lambda2"
+   
+  LatestRuntimeLambdaEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: Lambda2
+      Description: "[Lambda.2] Lambda functions should use latest runtimes"
+      Id: Lambda2
+
+  LatestRuntimeLambdaEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "LatestRuntimeLambdaEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "LatestRuntimeLambdaEnabledRule"
+          - "Arn"
+
+  LatestRuntimeLambdaEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: FSBP-LatestRuntimeLambdaEnabledLambda
+      Description: "[Lambda.2] Lambda functions should use latest runtimes"
+      Handler: index.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt LatestRuntimeLambdaEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              functionname = str(event['detail']['findings'][0]['Resources'][0]['Details']['AwsLambdaFunction']['FunctionName'])
+              Id = str(event['detail']['findings'][0]['Id'])
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-FSBP-LatestRuntimeLambda',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'functionname': [ functionname ]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  LatestRuntimeLambdaEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: FSBP-LatestRuntimeLambdaEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            - lambda:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
 # [S3.1] S3 Block Public Access setting should be enabled
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 
