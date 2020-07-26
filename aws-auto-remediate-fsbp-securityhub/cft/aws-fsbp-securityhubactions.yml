@@ -1713,6 +1713,8 @@ Resources:
                       InstanceProfileName='EC2ManagedInstanceProfile'
                  )
 
+                 InstanceProfileArn = response_iam_1['InstanceProfile']['Arn']
+
                  response_iam_2 = iam.add_role_to_instance_profile(
                       InstanceProfileName='EC2ManagedInstanceProfile',
                       RoleName=rolename
@@ -1721,18 +1723,20 @@ Resources:
                  response_ec2 = ec2.associate_iam_instance_profile(
                      IamInstanceProfile={
                          'Name': 'EC2ManagedInstanceProfile'
+                         'Arn': InstanceProfileArn
                      },
                      InstanceId=InstanceId
                  )
 
-                 response = ssm.send_command(
-                      InstanceIds=[ InstanceId ],
-                      DocumentName='AWS-RunPatchBaseline',
-                      DocumentVersion='1',
-                      TimeoutSeconds=360,
-                      Comment='RunPatchBaseline Invoked in response to Security Hub finding',
-                      Parameters={ 'Operation': [ 'Install' ] },
-                      CloudWatchOutputConfig={ 'CloudWatchOutputEnabled': True }
+                 response = ssm.create_association(
+                      Name='AWS-UpdateSSMAgent',
+                      Targets=[
+                          {
+                              'Key': 'InstanceIds',
+                              'Value': InstanceId
+                          }
+
+                      ]
                  )
 
               except Exception as e:
@@ -2122,6 +2126,125 @@ Resources:
             - s3:PutBucketPolicy
             - s3:PutBucketPublicAccessBlock
             - iam:PassRole
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [RDS.3] RDS DB instances should have encryption at-rest enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  RDSInstanceEncryptionEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: FSBP-RDSInstanceEncryptionEnabledRule
+      Description: "[RDS.2] RDS instances should have encryption at rest enabled"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt RDSInstanceEncryptionEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "RDSInstanceEncryptionEnabledLambda"
+              - "Arn"
+          Id: "RDS3"
+   
+  RDSInstanceEncryptionEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: RDS3
+      Description: "[RDS.3] RDS DB instances should have encryption at-rest enabled"
+      Id: RDS3
+
+  RDSInstanceEncryptionEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "RDSInstanceEncryptionEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "RDSInstanceEncryptionEnabledRule"
+          - "Arn"
+
+  RDSInstanceEncryptionEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: FSBP-RDSInstanceEncryptionEnabledLambda
+      Description: "[RDS.3] RDS DB instances should have encryption at-rest enabled"
+      Handler: index.lambda_handler
+      MemorySize: 768
+      Role: !GetAtt RDSInstanceEncryptionEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 875
+      Environment:
+        Variables:
+          kmskeyArn : !ImportValue FSBP-KMSKeyArn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              dbinstanceArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              dbinstanceId = dbinstanceArn.split(':')[-1]
+              kmskeyArn = os.environ['kmskeyArn']
+
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-FSBP-EncryptRDSDBInstance',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'dbinstanceId': [ dbinstanceId ]
+                          'kmskeyArn': [kmskeyArn]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  RDSInstanceEncryptionEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: FSBP-RDSInstanceEncryptionEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
             - securityhub:UpdateFindings
             Resource: '*'
       AssumeRolePolicyDocument:

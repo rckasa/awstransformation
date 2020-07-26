@@ -741,6 +741,38 @@ Resources:
                 projectName: '{{projectName}}'
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
+# [RDS.3] RDS DB instances should have encryption at-rest enabled
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  
+  RDSEncryptDBInstance:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-FSBP-EncryptRDSDBInstance
+      Content:
+        schemaVersion: '0.3'
+        assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            default: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
+          dbinstanceId:
+            type: String     
+          kmskeyArn:
+            type: String      
+        mainSteps:
+          - name: EncryptRDSDBInstance
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: script_handler
+              Script: "def script_handler(events, context):\r\n  import boto3\r\n  import time\r\n  client = boto3.client('rds')\r\n  dbinstanceId = events['dbinstanceId']\r\n  kmskeyArn = events['kmskeyArn']\r\n    \r\n  response_snapshot = client.create_db_snapshot(\r\n      DBSnapshotIdentifier=\"fsbp-snapshot-\" + dbinstanceId,\r\n      DBInstanceIdentifier=dbinstanceId\r\n  )\r\n    \r\n  response_snapshotA = client.get_waiter('db_snapshot_available').wait(\r\n      DBSnapshotIdentifier='fsbp-snapshot-' + dbinstanceId,\r\n      DBInstanceIdentifier=dbinstanceId\r\n  )\r\n\r\n    \r\n  response_snapshotCopy = client.copy_db_snapshot(\r\n      SourceDBSnapshotIdentifier=\"fsbp-snapshot-\" + dbinstanceId,\r\n      TargetDBSnapshotIdentifier=\"fsbp-snapshot-encrypted-\" + dbinstanceId,\r\n      KmsKeyId=kmskeyArn,\r\n      CopyTags=True\r\n  )\r\n                \r\n  response_snapshotB = client.get_waiter('db_snapshot_available').wait(\r\n      DBSnapshotIdentifier='fsbp-snapshot-encrypted-' + dbinstanceId,\r\n      DBInstanceIdentifier=dbinstanceId\r\n  )\r\n\r\n  response_restore = client.restore_db_instance_from_db_snapshot(\r\n      DBInstanceIdentifier='fsbp-encrypted-' + dbinstanceId,\r\n      DBSnapshotIdentifier='fsbp-snapshot-encrypted-' + dbinstanceId\r\n  )\r\n\r\n  response_snapshotC = client.get_waiter('db_instance_available').wait(\r\n      DBInstanceIdentifier='fsbp-encrypted-' + dbinstanceId\r\n  )\r\n\r\n  response_delete1 =  client.delete_db_snapshot(\r\n      DBSnapshotIdentifier='fsbp-snapshot-' + dbinstanceId\r\n  )\r\n                \r\n  response_delete2 = client.get_waiter('db_snapshot_deleted').wait(\r\n      DBSnapshotIdentifier='fsbp-snapshot-' + dbinstanceId,\r\n      WaiterConfig={\r\n           'Delay': 5,\r\n           'MaxAttempts': 30\r\n      }\r\n  )\r\n\r\n  response_delete3 = client.delete_db_instance(\r\n      DBInstanceIdentifier=dbinstanceId,\r\n      SkipFinalSnapshot=True\r\n  )\r\n                \r\n  response_wait = client.get_waiter('db_instance_deleted').wait(\r\n      DBInstanceIdentifier=dbinstanceId\r\n  )\r\n                \r\n  response_newinstance = client.modify_db_instance( \r\n      DBInstanceIdentifier='fsbp-encrypted-' + dbinstanceId,\r\n      ApplyImmediately=True, \r\n      NewDBInstanceIdentifier=dbinstanceId\r\n  )\r\n                \r\n  time.sleep(60)\r\n\r\n  response_final = client.get_waiter('db_instance_available').wait(\r\n      DBInstanceIdentifier=dbinstanceId\r\n  )\r\n  \r\n"
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                dbinstanceId: '{{dbinstanceId}}'
+                kmskeyArn: '{{kmskeyArn}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
 # [RDS.1] RDS snapshots should prohibit public access
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   
