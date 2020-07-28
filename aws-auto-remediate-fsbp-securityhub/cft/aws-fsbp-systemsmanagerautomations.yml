@@ -864,6 +864,41 @@ Resources:
 
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
+# [EC2.3] Attached EBS volumes should be encrypted at-rest
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+  
+  EncryptEBSVolume:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: Custom-FSBP-EncryptEBSVolume
+      Content:
+        schemaVersion: '0.3'
+        assumeRole: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            default: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AutomationAssumeRole}"
+          ebsvolumeId:
+            type: String   
+          sourceregion:
+            type: String  
+          kmskeyArn:
+            type: String 
+        mainSteps:
+          - name: EncryptEBSVolume
+            action: 'aws:executeScript'
+            inputs:
+              Runtime: python3.6
+              Handler: script_handler
+              Script: "def script_handler(events, context):\r\n    # TODO implement\r\n    import json\r\n    import boto3\r\n    \r\n    client = boto3.client('ec2')\r\n    ebsvolumeId = events['ebsvolumeId']\r\n    kmskeyArn = events['kmskeyArn']\r\n    sourceregion = events['sourceregion']\r\n    \r\n    print('0. Describe Volume')\r\n    \r\n    response_volume = client.describe_volumes(\r\n        VolumeIds=[\r\n        ebsvolumeId\r\n        ]   \r\n    )\r\n    instanceid = response_volume['Volumes'][0]['Attachments'][0]['InstanceId']\r\n    size= response_volume['Volumes'][0]['Size']\r\n    availabilityzone = response_volume['Volumes'][0]['AvailabilityZone']\r\n    \r\n    response_snapshot = client.create_snapshot(\r\n        Description='New FSBP snapshot',\r\n        VolumeId=ebsvolumeId\r\n    )\r\n    \r\n    snapshotid = response_snapshot['SnapshotId']\r\n    \r\n    response_snapshotA = client.get_waiter('snapshot_completed').wait(\r\n        SnapshotIds=[snapshotid]\r\n    )\r\n\r\n    print('2. Copy and Encrypt. Creating encrypted snapshot from unencrypted copy')\r\n    \r\n    response_snapshotCopy = client.copy_snapshot(\r\n        Description='New FSBP Encrypted snapshot.',\r\n        DestinationRegion=sourceregion,\r\n        SourceRegion=sourceregion,\r\n        SourceSnapshotId=snapshotid,\r\n        KmsKeyId=kmskeyArn,\r\n        Encrypted=True\r\n    )\r\n    \r\n    snapshotencryptedId = response_snapshot['SnapshotId']\r\n    \r\n    response_snapshotB = client.get_waiter('snapshot_completed').wait(\r\n        SnapshotIds=[snapshotencryptedId]\r\n    )\r\n    \r\n    print('3. Create volume from encrypted snapshot')\r\n    \r\n    response_volume_encrypted = client.create_volume(\r\n        AvailabilityZone=availabilityzone,\r\n        Size=size,\r\n        VolumeType='gp2',\r\n        KmsKeyId=kmskeyArn,\r\n        Encrypted=True\r\n    )\r\n\r\n    encryptedVolumeId = response_volume_encrypted['VolumeId']\r\n    \r\n    response_snapshotC = client.get_waiter('volume_available').wait(\r\n        VolumeIds=[encryptedVolumeId]\r\n    )\r\n\r\n    print('4. Stop original instance or terminate original instance if instance in asg')\r\n    \r\n    asgclient = boto3.client('autoscaling')\r\n    \r\n    response_asg = asgclient.describe_auto_scaling_instances(\r\n        InstanceIds=[\r\n        instanceid\r\n        ]\r\n    )\r\n    \r\n    if not response_asg['AutoScalingInstances']:\r\n        response_terminateinstance = client.terminate_instances(\r\n            InstanceIds=[\r\n            instanceid\r\n            ]\r\n        )\r\n    else:\r\n         response_stopinstance = client.stop_instances(\r\n            InstanceIds=[\r\n            instanceid\r\n            ]\r\n        )\r\n        \r\n         response_instanceA = client.get_waiter('instance_stopped').wait(\r\n            InstanceIds=[instanceid]\r\n        )\r\n    \r\n         print('5. Detach original volume')\r\n    \r\n         response_detach_volume = client.detach_volume(\r\n            VolumeId=ebsvolumeId\r\n        )\r\n\r\n         response_snapshotC = client.get_waiter('volume_available').wait(\r\n            VolumeIds=[ebsvolumeId]\r\n        )\r\n    \r\n         print('6. Delete original volume')\r\n    \r\n         response = client.delete_volume(\r\n            VolumeId=ebsvolumeId\r\n        )\r\n    \r\n         response_volumeA = client.get_waiter('volume_deleted').wait(\r\n            VolumeIds=[ebsvolumeId]\r\n        )\r\n    \r\n    print('7. Delete original snapshot')\r\n    \r\n    response = client.delete_snapshot(\r\n        SnapshotId=snapshotid\r\n    )"
+              InputPayload:
+                AutomationAssumeRole: '{{AutomationAssumeRole}}'
+                ebsvolumeId: '{{ebsvolumeId}}'
+                sourceregion: '{{sourceregion}}'
+                kmskeyArn: '{{kmskeyArn}}'
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
 # [GuardDuty.1] GuardDuty should be enabled
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
   

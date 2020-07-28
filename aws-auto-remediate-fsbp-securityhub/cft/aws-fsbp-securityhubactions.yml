@@ -2362,6 +2362,128 @@ Resources:
 
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
+#  [EC2.3] Attached EBS volumes should be encrypted at-rest
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  EBSVolumeEncryptionEnabledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: FSBP-EBSVolumeEncryptionEnabledRule
+      Description: "[EC2.3] Attached EBS volumes should be encrypted at-rest"
+      EventPattern: 
+        source: 
+          - aws.securityhub
+        detail-type: 
+          - Security Hub Findings - Custom Action
+        resources: 
+          - !GetAtt EBSVolumeEncryptionEnabledActionTarget.Arn
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "EBSVolumeEncryptionEnabledLambda"
+              - "Arn"
+          Id: "EC23"
+   
+  EBSVolumeEncryptionEnabledActionTarget:
+    Type: Custom::ActionTarget
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt CreateSecurityHubCustomActionTargetLambda.Arn
+      Name: EC23
+      Description: "[EC2.3] Attached EBS volumes should be encrypted at-rest"
+      Id: EC23
+
+  EBSVolumeEncryptionEnabledPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: "EBSVolumeEncryptionEnabledLambda"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "EBSVolumeEncryptionEnabledRule"
+          - "Arn"
+
+  EBSVolumeEncryptionEnabledLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: FSBP-EBSVolumeEncryptionEnabledLambda
+      Description: "[EC2.3] Attached EBS volumes should be encrypted at-rest"
+      Handler: index.lambda_handler
+      MemorySize: 768
+      Role: !GetAtt EBSVolumeEncryptionEnabledLambdaRole.Arn
+      Runtime: python3.7
+      Timeout: 875
+      Environment:
+        Variables:
+          kmskeyArn : !ImportValue FSBP-KMSKeyArn
+          sourceregion: !Ref "AWS::Region"
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          def lambda_handler(event, context):
+              ebsvolumeArn = str(event['detail']['findings'][0]['Resources'][0]['Id'])
+              ebsvolumeId = ebsvolumeArn.split(':')[-1]
+              kmskeyArn = os.environ['kmskeyArn']
+              sourceregion = os.environ['sourceregion']
+
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.start_automation_execution(
+                      DocumentName='Custom-FSBP-EncryptEBSVolume',
+                      DocumentVersion='1', # default
+                      Parameters={
+                          'ebsvolumeId': [ ebsvolumeId ]
+                          'kmskeyArn': [kmskeyArn]
+                          'sourceregion': [sourceregion]
+                      }
+                  )
+              except Exception as e:
+                  print(e)
+                  print("SSM automation execution error")
+                  raise
+
+  EBSVolumeEncryptionEnabledLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+      - PolicyName: FSBP-EBSVolumeEncryptionEnabledLambdaPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - ssm:StartAutomationExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - iam:PassRole
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - cloudtrail:UpdateTrail
+            - securityhub:UpdateFindings
+            Resource: '*'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal: { Service: lambda.amazonaws.com }
+          Action:
+          - sts:AssumeRole
+
+
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
 #  [RDS.3] RDS DB instances should have encryption at-rest enabled
 # -------------------------------------------------------------------------------------------------------------------------------------------------------
 
